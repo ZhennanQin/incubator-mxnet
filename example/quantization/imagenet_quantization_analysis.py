@@ -73,86 +73,6 @@ def advance_data_iter(data_iter, n):
         except StopIteration:
             has_next_batch = False
 
-
-def ref_score(ref_sym, ref_arg_params, ref_aux_params, data, devs, label_name, max_num_examples, logger=None):
-    metrics = [mx.metric.create('acc'),
-               mx.metric.create('top_k_accuracy', top_k=5)]
-    if not isinstance(metrics, list):
-        metrics = [metrics, ]
-    mod = mx.mod.Module(symbol=sym, context=devs, label_names=[label_name, ])
-    mod.bind(for_training=False,
-             data_shapes=data.provide_data,
-             label_shapes=data.provide_label)
-    mod.set_params(arg_params, aux_params)
-
-    tic = time.time()
-    num = 0
-    for batch in data:
-        mod.forward(batch, is_train=False)
-        output = mod.get_outputs()[0]
-        output.wait_to_read()
-        label = output.argmax(axis=1)
-        print(label)
-        print(batch.label)
-        for m in metrics:
-            mod.update_metric(m, batch.label)
-        num += batch_size
-        if max_num_examples is not None and num >= max_num_examples:
-            break
-
-    speed = num / (time.time() - tic)
-
-    if logger is not None:
-        logger.info('Finished inference with %d images' % num)
-        logger.info('Finished with %f images per second', speed)
-        logger.warn('Note: GPU performance is expected to be slower than CPU. Please refer quantization/README.md for details')
-        for m in metrics:
-            logger.info(m.get())
-
-
-def benchmark_score(symbol_file, ctx, batch_size, num_batches, data_layer_type, logger=None):
-    # get mod
-    cur_path = os.path.dirname(os.path.realpath(__file__))
-    symbol_file_path = os.path.join(cur_path, symbol_file)
-    if logger is not None:
-        logger.info('Loading symbol from file %s' % symbol_file_path)
-    sym = mx.sym.load(symbol_file_path)
-    mod = mx.mod.Module(symbol=sym, context=ctx)
-    if data_layer_type == "float32":
-        dshape = mx.io.DataDesc(name='data', shape=(
-            batch_size,) + data_shape, dtype=np.float32)
-    elif data_layer_type == 'uint8':
-        dshape = mx.io.DataDesc(name='data', shape=(
-            batch_size,) + data_shape, dtype=np.uint8)
-    else:  # int8
-        dshape = mx.io.DataDesc(name='data', shape=(
-            batch_size,) + data_shape, dtype=np.int8)
-    mod.bind(for_training=False,
-             inputs_need_grad=False,
-             data_shapes=[dshape])
-    mod.init_params(initializer=mx.init.Xavier(magnitude=2.))
-
-    # get data
-    if data_layer_type == "float32":
-        data = [mx.random.uniform(-1.0, 1.0, shape=shape, ctx=ctx, dtype=data_layer_type)
-                for _, shape in mod.data_shapes]
-    else:
-        data = [mx.nd.full(shape=shape, val=127, ctx=ctx, dtype=data_layer_type)
-                for _, shape in mod.data_shapes]
-    batch = mx.io.DataBatch(data, [])  # empty label
-
-    # run
-    dry_run = 5                 # use 5 iterations to warm up
-    for i in range(dry_run+num_batches):
-        if i == dry_run:
-            tic = time.time()
-        mod.forward(batch, is_train=False)
-        for output in mod.get_outputs():
-            output.wait_to_read()
-
-    # return num images per second
-    return num_batches*batch_size/(time.time() - tic)
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Score a model on a dataset')
     parser.add_argument('--ctx', type=str, default='gpu')
@@ -162,14 +82,15 @@ if __name__ == '__main__':
     parser.add_argument('--target-param-file', type=str, required=True, help='target param file path')
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--label-name', type=str, default='softmax_label')
-    parser.add_argument('--dataset', type=str, required=False, help='dataset path')
+    parser.add_argument('--dataset', type=str, default='data/val_256_q90.rec',
+                        help='path of the dataset')
     parser.add_argument('--rgb-mean', type=str, default='0,0,0')
     parser.add_argument('--rgb-std', type=str, default='1,1,1')
     parser.add_argument('--image-shape', type=str, default='3,224,224')
     parser.add_argument('--data-nthreads', type=int, default=60, help='number of threads for data decoding')
     parser.add_argument('--num-skipped-batches', type=int, default=0, help='skip the number of batches for inference')
     parser.add_argument('--num-inference-batches', type=int, required=True, help='number of images used for inference')
-    parser.add_argument('--shuffle-dataset', action='store_true', default=True,
+    parser.add_argument('--shuffle-dataset', action='store_true', default=False,
                         help='shuffle the calibration dataset')
     parser.add_argument('--shuffle-chunk-seed', type=int, default=3982304,
                         help='shuffling chunk seed, see'
@@ -226,7 +147,7 @@ if __name__ == '__main__':
 
     # creating data iterator
     data = mx.io.ImageRecordIter(
-        path_imgrec=dataset,
+        path_imgrec=args.dataset,
         label_width=1,
         preprocess_threads=data_nthreads,
         batch_size=batch_size,

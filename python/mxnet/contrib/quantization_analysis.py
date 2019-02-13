@@ -39,29 +39,65 @@ from ..io import DataIter
 from ..context import cpu, Context
 from ..module import Module
 
-def compare_model_result(target_sym, target_arg_params, target_aux_params,
-                         ref_sym, ref_arg_params, ref_aux_params,
-                         data, devs, label_name, num_iterations, metrics, logger=None):
-    ref_mod = mx.mod.Module(symbol=ref_sym, context=devs, label_names=[label_name, ])
-    ref_mod.bind(for_training=False,
-                 data_shapes=data.provide_data,
-                 label_shapes=data.provide_label)
+
+def compare_model_result(target_sym,
+                         target_arg_params,
+                         target_aux_params,
+                         ref_sym,
+                         ref_arg_params,
+                         ref_aux_params,
+                         data,
+                         devs,
+                         label_name,
+                         num_iterations,
+                         metrics,
+                         logger=None):
+    ref_mod = mx.mod.Module(
+        symbol=ref_sym, context=devs, label_names=[
+            label_name,
+        ])
+    ref_mod.bind(
+        for_training=False,
+        data_shapes=data.provide_data,
+        label_shapes=data.provide_label)
     ref_mod.set_params(ref_arg_params, ref_aux_params)
 
-    target_mod = mx.mod.Module(symbol=target_sym, context=devs, label_names=[label_name, ])
-    target_mod.bind(for_training=False,
-                 data_shapes=data.provide_data,
-                 label_shapes=data.provide_label)
+    target_mod = mx.mod.Module(
+        symbol=target_sym, context=devs, label_names=[
+            label_name,
+        ])
+    target_mod.bind(
+        for_training=False,
+        data_shapes=data.provide_data,
+        label_shapes=data.provide_label)
     target_mod.set_params(target_arg_params, target_aux_params)
+    diff = []
     num = 0
     for batch in data:
         ref_mod.forward(batch, is_train=False)
         ref_output = ref_mod.get_outputs()[0]
-        ref_output.wait_to_read()
-        ref_label = [ref_output.argmax(axis=1)]
+        ref_label = ref_output.argmax(axis=1)
         target_mod.forward(batch, is_train=False)
+        target_output = target_mod.get_outputs()[0]
+        target_label = target_output.argmax(axis=1)
+        ref_label_np = ref_label.asnumpy()
+        target_label_np = target_label.asnumpy()
+        eq_np = np.equal(ref_label_np, target_label_np)
+        for idx, val in enumerate(eq_np):
+            if val == False:
+                real_label = batch.label[0].asnumpy()
+                diff.append([
+                    batch.index[idx], ref_label_np[idx], target_label_np[idx],
+                    real_label[idx]
+                ])
+                logger.info(
+                    "result mismatch: image_index: %d, ref_label:%d, target_label:%d, real_label:%d"
+                    % (batch.index[idx], int(ref_label_np[idx]),
+                       int(target_label_np[idx]), int(real_label[idx])))
+
         for m in metrics:
-            target_mod.update_metric(m, ref_label)
+            target_mod.update_metric(m, [ref_label])
         num += 1
         if num_iterations is not None and num >= num_iterations:
             break
+    return diff
