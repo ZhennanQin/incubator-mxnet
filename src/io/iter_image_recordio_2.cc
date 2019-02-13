@@ -75,8 +75,8 @@ class ImageRecordIOParser2 {
   cv::Mat TJimdecode(cv::Mat buf, int color);
 #endif
 #endif
-  inline size_t ParseChunk(DType* data_dptr, real_t* label_dptr, const size_t current_size,
-    dmlc::InputSplit::Blob * chunk);
+  inline size_t ParseChunk(DType* data_dptr, real_t* label_dptr, std::vector<uint64_t>* index_vec,
+                           const size_t current_size, dmlc::InputSplit::Blob* chunk);
   inline void CreateMeanImg(void);
 
   // magic number to seed prng
@@ -308,9 +308,9 @@ inline bool ImageRecordIOParser2<DType>::ParseNext(DataBatch *out) {
         DType* data_dptr = static_cast<DType*>(out->data[0].data().dptr_);
         real_t* label_dptr = static_cast<real_t*>(out->data[1].data().dptr_);
         if (!legacy_shuffle_) {
-          n_to_out = ParseChunk(data_dptr, label_dptr, current_size, &chunk);
+          n_to_out = ParseChunk(data_dptr, label_dptr, &out->index, current_size, &chunk);
         } else {
-          n_to_out = ParseChunk(nullptr, nullptr, batch_param_.batch_size, &chunk);
+          n_to_out = ParseChunk(nullptr, nullptr, nullptr, batch_param_.batch_size, &chunk);
         }
         // Count number of parsed images that do not fit into current out
         n_parsed_ = inst_order_.size();
@@ -342,6 +342,7 @@ inline bool ImageRecordIOParser2<DType>::ParseNext(DataBatch *out) {
         omp_exc_.Run([&] {
         std::pair<size_t, size_t> place = inst_order_[inst_index_ + i];
         const DataInst& batch = temp_[place.first][place.second];
+        out->index[i] = batch.index;
         for (size_t j = 0; j < batch.data.size(); ++j) {
           CHECK_EQ(unit_size_[j], batch.data[j].Size());
           MSHADOW_TYPE_SWITCH(out->data[j].data().type_flag_, dtype, {
@@ -487,9 +488,11 @@ cv::Mat ImageRecordIOParser2<DType>::TJimdecode(cv::Mat image, int color) {
 #endif
 
 // Returns the number of images that are put into output
-template<typename DType>
+template <typename DType>
 inline size_t ImageRecordIOParser2<DType>::ParseChunk(DType* data_dptr, real_t* label_dptr,
-  const size_t current_size, dmlc::InputSplit::Blob * chunk) {
+                                                      std::vector<uint64_t>* index_vec,
+                                                      const size_t current_size,
+                                                      dmlc::InputSplit::Blob* chunk) {
   temp_.resize(param_.preprocess_threads);
 #if MXNET_USE_OPENCV
   // save opencv out
@@ -523,6 +526,9 @@ inline size_t ImageRecordIOParser2<DType>::ParseChunk(DType* data_dptr, real_t* 
       // Opencv decode and augments
       cv::Mat res;
       rec.Load(blob.dptr, blob.size);
+      if (index_vec && idx < batch_param_.batch_size) {
+        index_vec->at(idx) = rec.header.image_id[0];
+      }
       cv::Mat buf(1, rec.content_size, CV_8U, rec.content);
 
       // If augmentation seed is supplied
@@ -645,7 +651,7 @@ inline void ImageRecordIOParser2<DType>::CreateMeanImg(void) {
     while (source_->NextChunk(&chunk)) {
       inst_order_.clear();
       // Parse chunk w/o putting anything in out
-      ParseChunk(nullptr, nullptr, batch_param_.batch_size, &chunk);
+      ParseChunk(nullptr, nullptr, nullptr, batch_param_.batch_size, &chunk);
       for (size_t i = 0; i < inst_order_.size(); ++i) {
         std::pair<size_t, size_t> place = inst_order_[i];
         mshadow::Tensor<cpu, 3> outimg =
