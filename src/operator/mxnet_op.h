@@ -174,6 +174,7 @@ inline int get_num_threads<cpu>(const int N) {
     }                                                      \
     break;                                                 \
   case mshadow::kFloat16:                                  \
+  case mshadow::kBfloat16:                                 \
     {                                                      \
       typedef mshadow::half::half_t DType;                 \
       {__VA_ARGS__}                                        \

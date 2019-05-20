@@ -65,6 +65,7 @@ _DTYPE_NP_TO_MX = {
     np.int32: 4,
     np.int8: 5,
     np.int64: 6,
+    np.uint16:
 }
 
 _DTYPE_MX_TO_NP = {
