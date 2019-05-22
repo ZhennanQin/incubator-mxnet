@@ -35,14 +35,14 @@ from ... import base
 from ... import optimizer as opt
 from .loss_scaler import LossScaler
 
+bfloat16 = np.dtype([('bfloat16',np.uint16)])
+
 def _cast_symbol_NDArray(s, dtype):
-    float_types = (np.float16, np.float32)
+    float_types = (np.float16, np.float32, bfloat16)
     if isinstance(s, Symbol):
         return symbol.amp_cast(s, dtype=dtype)
     elif isinstance(s, NDArray):
-        if (s.dtype != dtype and
-                s.dtype in float_types and
-                s.context.device_type != 'cpu'):
+        if (s.dtype != dtype and s.dtype in float_types):
             return ndarray.amp_cast(s, dtype=dtype)
         else:
             return s
@@ -248,11 +248,11 @@ def init(target_dtype='float16', target_precision_ops=None,
 
     Parameters
     ----------
-    target_dtype : {'float16'}
-        Target low precision type for AMP. Currently only float16 is supported.
+    target_dtype : {'float16', 'bfloat16'}
+        Target low precision type for AMP. Currently only float16 and bfloat16 are supported.
     target_precision_ops : list of string
-        Override the list of functions casted to FP16. Entries in this list
-        are names of the functions casted to FP16.
+        Override the list of functions casted to target_dtype. Entries in this list
+        are names of the functions casted to target_dtype.
     conditional_fp32_ops : list of (string, string, list of string)
         Override the list of functions conditionally casted to FP32. The format
         of the list is (name of the function, name of the parameter, list of
@@ -264,8 +264,9 @@ def init(target_dtype='float16', target_precision_ops=None,
     global _amp_initialized
     global _loss_scaler
     if not _amp_initialized:
-        assert target_dtype == 'float16' or target_dtype == np.float16, \
-               "AMP currently supports only float16 as a target_dtype"
+        assert target_dtype == 'float16' or target_dtype == np.float16 \
+               or target_dtype == 'bfloat16' or target_dtype == bfloat16, \
+               "AMP currently supports only float16 or bfloat16 as a target_dtype"
         _amp_initialized = True
         logging.info("Using AMP")
         target_dtype = np.dtype(target_dtype)
