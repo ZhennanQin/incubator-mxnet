@@ -35,7 +35,7 @@ from ... import base
 from ... import optimizer as opt
 from .loss_scaler import LossScaler
 
-bfloat16 = np.dtype([('bfloat16',np.uint16)])
+bfloat16 = np.dtype([('bfloat16', np.uint16)])
 
 def _cast_symbol_NDArray(s, dtype):
     float_types = (np.float16, np.float32, bfloat16)
@@ -159,7 +159,7 @@ def _wrap_symbol_functions(module, target_dtype, target_precision_ops=None,
             if cur_module == module:
                 setattr(module.op, fun_name, _wrapper(f_to_wrap, target_dtype))
         except AttributeError:
-            pass
+            raise
 
     wrap_list = fp32_ops if fp32_ops is not None else lists.symbol.FP32_FUNCS
     for fun_name in wrap_list:
@@ -170,19 +170,20 @@ def _wrap_symbol_functions(module, target_dtype, target_precision_ops=None,
             if cur_module == module:
                 setattr(module.op, fun_name, _wrapper(f_to_wrap, np.float32))
         except AttributeError:
-            pass
+            raise
+    if 0:
+        wrap_list = conditional_fp32_ops if conditional_fp32_ops is not None \
+                        else lists.symbol.CONDITIONAL_FP32_FUNCS
+        for fun_name, arg, arg_values in wrap_list:
+            try:
+                fun_name, cur_module = _get_fun_to_wrap(fun_name, module, submodule_dict)
+                f_to_wrap = getattr(cur_module, fun_name)
+                setattr(cur_module, fun_name, _wrapper(f_to_wrap, np.float32, (arg, arg_values)))
+                if cur_module == module:
+                    setattr(module.op, fun_name, _wrapper(f_to_wrap, np.float32, (arg, arg_values)))
+            except AttributeError:
+                raise
 
-    wrap_list = conditional_fp32_ops if conditional_fp32_ops is not None \
-                    else lists.symbol.CONDITIONAL_FP32_FUNCS
-    for fun_name, arg, arg_values in wrap_list:
-        try:
-            fun_name, cur_module = _get_fun_to_wrap(fun_name, module, submodule_dict)
-            f_to_wrap = getattr(cur_module, fun_name)
-            setattr(cur_module, fun_name, _wrapper(f_to_wrap, np.float32, (arg, arg_values)))
-            if cur_module == module:
-                setattr(module.op, fun_name, _wrapper(f_to_wrap, np.float32, (arg, arg_values)))
-        except AttributeError:
-            pass
 
     for fun_name in lists.symbol.WIDEST_TYPE_CASTS:
         try:
@@ -192,7 +193,7 @@ def _wrap_symbol_functions(module, target_dtype, target_precision_ops=None,
             if cur_module == module:
                 setattr(module.op, fun_name, _symbol_widest_wrapper(f_to_wrap))
         except AttributeError:
-            pass
+            raise
 
 def _wrap_loss_output_functions(module, ls):
     if module == ndarray:
@@ -269,7 +270,10 @@ def init(target_dtype='float16', target_precision_ops=None,
                "AMP currently supports only float16 or bfloat16 as a target_dtype"
         _amp_initialized = True
         logging.info("Using AMP")
-        target_dtype = np.dtype(target_dtype)
+        if target_dtype == "bfloat16":
+            target_dtype = bfloat16
+        else:
+            target_dtype = np.dtype(target_dtype)
         _wrap_symbol_functions(symbol, target_dtype, target_precision_ops,
                                conditional_fp32_ops, fp32_ops)
         _wrap_symbol_functions(ndarray, target_dtype, target_precision_ops,

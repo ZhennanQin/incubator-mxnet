@@ -31,7 +31,7 @@ FP16_FUNCS = [
 # like image transformations or optimizers) or they
 # are dtype neutral (can work in both fp16 and fp32)
 FP16_FP32_FUNCS = [
-    'BatchNorm',
+
     'BatchNorm_v1',
     'BilinearSampler',
     'BlockGrad',
@@ -354,6 +354,7 @@ FP16_FP32_FUNCS = [
 # Functions that have to be cast to FP32 due to possible
 # overflows
 FP32_FUNCS = [
+    'BatchNorm',
     'Convolution_v1',
     'IdentityAttachKLSparseReg',
     'arccos',

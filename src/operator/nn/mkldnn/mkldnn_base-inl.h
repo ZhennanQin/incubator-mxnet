@@ -135,12 +135,13 @@ static inline bool SupportStorageMKLDNN(int stype) {
 
 static inline bool SupportMKLDNN(int dtype, const mxnet::TShape &shape) {
   int ndim = shape.ndim();
-  return dtype == mshadow::kFloat32 && (ndim == 1 || ndim == 2 || ndim == 4);
+  return (dtype == mshadow::kFloat32 || dtype == mshadow::kBfloat16) &&
+         (ndim == 1 || ndim == 2 || ndim == 4);
 }
 
 static inline bool SupportMKLDNNQuantize(int dtype) {
   return dtype == mshadow::kFloat32 || dtype == mshadow::kInt8 ||
-         dtype == mshadow::kUint8;
+         dtype == mshadow::kUint8 || dtype == mshadow::kBfloat16;
 }
 
 static inline bool SupportMKLDNN(const NDArray &input) {

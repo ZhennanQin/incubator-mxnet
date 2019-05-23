@@ -59,11 +59,10 @@ inline bool AMPCastType(const nnvm::NodeAttrs& attrs,
                         std::vector<int> *in_attrs,
                         std::vector<int> *out_attrs) {
   using mshadow::kFloat32;
-  using mshadow::kFloat16;
   const AMPCastParam& param = nnvm::get<AMPCastParam>(attrs.parsed);
   CHECK_EQ(in_attrs->size(), 1U);
   CHECK_EQ(out_attrs->size(), 1U);
-  if ((*in_attrs)[0] == kFloat32 || (*in_attrs)[0] == kFloat16) {
+  if ((*in_attrs)[0] == kFloat32 || (*in_attrs)[0] == param.dtype) {
     TYPE_ASSIGN_CHECK(*out_attrs, 0, param.dtype);
   } else {
     TYPE_ASSIGN_CHECK(*out_attrs, 0, (*in_attrs)[0]);
@@ -76,18 +75,26 @@ inline bool AMPMultiCastType(const nnvm::NodeAttrs& attrs,
                         std::vector<int> *out_attrs) {
   using mshadow::kFloat32;
   using mshadow::kFloat16;
+  using mshadow::kBfloat16;
   const AMPMultiCastParam& param = nnvm::get<AMPMultiCastParam>(attrs.parsed);
   CHECK_EQ(in_attrs->size(), param.num_outputs);
   CHECK_EQ(out_attrs->size(), param.num_outputs);
   bool ret = true;
-  int widest_type = kFloat16;
+  int widest_type = -1;
   for (int i = 0; i < param.num_outputs; ++i) {
     if ((*in_attrs)[i] == kFloat32 || (*out_attrs)[i] == kFloat32) {
       widest_type = kFloat32;
+    } else if (widest_type != kFloat32) {
+      if ((*in_attrs)[i] == kFloat16 || (*in_attrs)[i] == kBfloat16) {
+        widest_type = (*in_attrs)[i];
+      } else if ((*out_attrs)[i] == kFloat16 || (*out_attrs)[i] == kBfloat16) {
+        widest_type = (*in_attrs)[i];
+      }
     }
   }
+  CHECK_NE(widest_type, -1);
   for (int i = 0; i < param.num_outputs; ++i) {
-    if ((*in_attrs)[i] == kFloat32 || (*in_attrs)[i] == kFloat16) {
+    if ((*in_attrs)[i] == kFloat32 || (*in_attrs)[i] == kFloat16 || (*in_attrs)[i] == kBfloat16) {
       TYPE_ASSIGN_CHECK(*out_attrs, i, widest_type);
     } else {
       TYPE_ASSIGN_CHECK(*out_attrs, i, (*in_attrs)[i]);
