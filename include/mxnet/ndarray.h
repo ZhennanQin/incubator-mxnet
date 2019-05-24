@@ -37,9 +37,6 @@
 #include <algorithm>
 #include <memory>
 #include <algorithm>
-#if MXNET_USE_MKLDNN == 1
-#include <mkldnn.hpp>
-#endif
 #include "./base.h"
 #include "./storage.h"
 #include "./engine.h"
@@ -692,99 +689,6 @@ class NDArray {
     ptr_->CheckAndAllocAuxData(i, aux_shape);
   }
 
-#if MXNET_USE_MKLDNN == 1
-  /*
-   * Create NDArray from mkldnn memory.
-   * mkldnn_mem The mkldnn memory to be managed.
-   */
-  explicit NDArray(const std::shared_ptr<mkldnn::memory> &mkldnn_mem);
-  /*
-   * Create NDArray from mkldnn memory descriptor.
-   * mem_pd The mkldnn memory descriptor to be created.
-   */
-  explicit NDArray(mkldnn::memory::primitive_desc mem_pd);
-  /*
-   * Test if the data is stored in one of special MKLDNN format.
-   */
-  bool IsMKLDNNData() const {
-    return ptr_->IsMKLDNN();
-  }
-  /*
-   * Test if the data is stored in one of default MXNet formats.
-   */
-  bool IsDefaultData() const {
-    return ptr_->IsDefault();
-  }
-  /*
-   * All functions below return a raw pointer to mkldnn memory. Actually there
-   * is a shared pointer that hold the memory either in NDArray or in MKLDNN
-   * stream. As long as we call these functions inside an operator, the return
-   * memory is always valid.
-   */
-
-  /*
-   * This function returns mkldnn::memory with the default primitive_desc.
-   */
-  const mkldnn::memory *GetMKLDNNData() const;
-  /*
-   * This function returns mkldnn::memory with the given primitive_desc
-   * as long as the array size meets the required size in the given primitive_desc.
-   */
-  const mkldnn::memory *GetMKLDNNData(
-      const mkldnn::memory::primitive_desc &desc) const;
-  /*
-   * This function returns mkldnn::memory with the given primitive_desc.
-   * The returned mkldnn::memory will have the same physical layout as
-   * the given primitive_desc.
-   */
-  const mkldnn::memory *GetMKLDNNDataReorder(
-      const mkldnn::memory::primitive_desc &desc) const;
-
-  /*
-   * This function copies data from mkldnn memory.
-   */
-  void CopyFrom(const mkldnn::memory &mem);
-  /*
-   * This function allocates memory for array and creates mkldnn memory
-   * with the specified format.
-   */
-  mkldnn::memory *CreateMKLDNNData(
-      const mkldnn::memory::primitive_desc &desc);
-
-  /*
-   * These are the async version of the methods above.
-   * It changes the layout of this NDArray, but it happens after all accesses to
-   * the array are complete.
-   */
-  void Reorder2DefaultAsync();
-  void MKLDNNDataReorderAsync(const mkldnn::memory::primitive_desc &desc);
-
-  /*
-   * This creates a new NDArray with the reordered data.
-   * It doesn't affect the data of the original NDArray.
-   */
-  NDArray Reorder2Default() const;
-
-  void InvalidateMKLDNNData();
-
-  /*
-   * This function is used inside operators to reshape an array.
-   * It doesn't change the layout of the original array and allocate memory from
-   * the temporary buffer. The returned array is only valid inside the current
-   * invocation of this operator.
-   * This is different from Reshape. Reshape will cause data in the array to be
-   * converted to the default layout and allocate memory from malloc directly,
-   * which can be expensive.
-   * It's used by FullyConnected right now.
-   */
-  NDArray MKLDNNDataReshape(const mxnet::TShape &shape) const;
-
-   /*!
-   * \ Fix mkldnn memory descriptor mismatch from NDArray.
-   */
-  void UpdateMKLDNNMemDesc(mkldnn::memory::format format);
-#endif
-
   /*!
    * \brief Save list of ndarray into the Stream.x
    * \param fo The stream of output.
@@ -820,11 +724,6 @@ class NDArray {
     */
     std::vector<Storage::Handle> aux_handles;
 
-#if MXNET_USE_MKLDNN == 1
-    /*! This is created when data is stored in MKLDNN format.
-     */
-    std::shared_ptr<MKLDNNMemory> mkl_mem_;
-#endif
     /*! \brief variable from engine */
     Engine::VarHandle var;
     /*!
@@ -979,9 +878,6 @@ class NDArray {
     inline void CheckAndAlloc(void) {
       if (delay_alloc) {
         shandle = Storage::Get()->Alloc(shandle.size, shandle.ctx);
-#if MXNET_USE_MKLDNN == 1
-        mkl_mem_ = nullptr;
-#endif
         delay_alloc = false;
       }
     }
@@ -994,18 +890,12 @@ class NDArray {
       dbytes = std::max(dbytes, static_cast<uint64_t>(shandle.size));
       if (delay_alloc) {
         shandle = Storage::Get()->Alloc(dbytes, shandle.ctx);
-#if MXNET_USE_MKLDNN == 1
-        mkl_mem_ = nullptr;
-#endif
         delay_alloc = false;
       } else if (shandle.size < dbytes) {
         // free storage
         Storage::Get()->Free(shandle);
         // init storage
         shandle = Storage::Get()->Alloc(dbytes, shandle.ctx);
-#if MXNET_USE_MKLDNN == 1
-        mkl_mem_ = nullptr;
-#endif
       }
     }
     /*! \brief initialize the shape and dtype, assuming it is not initialized before. */
@@ -1039,18 +929,6 @@ class NDArray {
     // and allocate new storage
     void CheckAndAllocData(const mxnet::TShape &shape, int dtype);
 
-#if MXNET_USE_MKLDNN == 1
-    // Have MKL memory reference to the data in the default storage
-    // or create memory for MKLDNN.
-    void SetMKLMem(const mxnet::TShape &shape, int dtype);
-    // If the data is stored in MKLDNN layout, we reorder data in mkl_mem_ and
-    // save the result in shandle.
-    void Reorder2Default();
-    // Reroder data to a specified layout.
-    void MKLDNNDataReorder(const mkldnn::memory::primitive_desc &desc);
-    bool IsMKLDNN() const;
-    bool IsDefault() const;
-#endif
 
     // create storage handle for aux data based on shape
     // this function assumes ctx, aux shapes and aux types are set

@@ -24,9 +24,6 @@
  * \author Ziheng Jiang, Jun Wu
 */
 #include "../nn/convolution-inl.h"
-#if MXNET_USE_MKLDNN == 1
-#include "../nn/mkldnn/mkldnn_ops-inl.h"
-#endif
 
 namespace mxnet {
 namespace op {
@@ -89,9 +86,6 @@ bool QuantizedConvType(const nnvm::NodeAttrs& attrs,
   const ConvolutionParam& param = nnvm::get<ConvolutionParam>(attrs.parsed);
   CHECK_EQ(in_type->size(), param.no_bias? 6U : 9U);
   CHECK_EQ(out_type->size(), 3U);
-#ifndef MXNET_USE_MKLDNN
-  TYPE_ASSIGN_CHECK(*in_type, 0, mshadow::kInt8);
-#endif
   TYPE_ASSIGN_CHECK(*in_type, 1, mshadow::kInt8);
   if (!param.no_bias) {
     TYPE_ASSIGN_CHECK(*in_type, 2, mshadow::kInt8);
@@ -114,11 +108,6 @@ bool QuantizedConvStorageType(const nnvm::NodeAttrs& attrs,
                               std::vector<int> *in_attrs,
                               std::vector<int> *out_attrs) {
   *dispatch_mode = DispatchMode::kFCompute;
-#if MXNET_USE_MKLDNN == 1
-  if (dev_mask == mshadow::cpu::kDevMask) {
-    *dispatch_mode = DispatchMode::kFComputeEx;
-  }
-#endif
 
   (*out_attrs)[0] = kDefaultStorage;
   (*out_attrs)[1] = kDefaultStorage;

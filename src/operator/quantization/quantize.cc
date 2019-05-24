@@ -23,9 +23,6 @@
  * \brief
  */
 #include "./quantize-inl.h"
-#if MXNET_USE_MKLDNN == 1
-#include "./mkldnn/mkldnn_quantize-inl.h"
-#endif
 
 namespace mxnet {
 namespace op {
@@ -37,11 +34,6 @@ bool QuantizeStorageType(const nnvm::NodeAttrs& attrs,
                          std::vector<int> *in_attrs,
                          std::vector<int> *out_attrs) {
   *dispatch_mode = DispatchMode::kFCompute;
-#if MXNET_USE_MKLDNN == 1
-  if (dev_mask == mshadow::cpu::kDevMask) {
-    *dispatch_mode = DispatchMode::kFComputeEx;
-  }
-#endif
   (*out_attrs)[0] = kDefaultStorage;
   (*out_attrs)[1] = kDefaultStorage;
   (*out_attrs)[2] = kDefaultStorage;
@@ -85,10 +77,6 @@ where
 // TODO(Xinyu): a temp solution to enable GluonCV INT8 flow,
 // will be reverted after the improvement of CachedOP is done.
 .set_attr<nnvm::FGradient>("FGradient", MakeZeroGradNodes)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FComputeEx>("FComputeEx<cpu>", MKLDNNQuantizeCompute)
-#endif
 .set_attr<FCompute>("FCompute<cpu>", QuantizeCompute<cpu>)
 .add_argument("data", "NDArray-or-Symbol", "A ndarray/symbol of type `float32`")
 .add_argument("min_range", "NDArray-or-Symbol", "The minimum scalar value "

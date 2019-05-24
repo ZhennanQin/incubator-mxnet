@@ -23,9 +23,6 @@
 */
 #include <mxnet/op_attr_types.h>
 #include "../nn/pooling-inl.h"
-#if MXNET_USE_MKLDNN == 1
-#include "../nn/mkldnn/mkldnn_pooling-inl.h"
-#endif
 
 namespace mxnet {
 namespace op {
@@ -98,12 +95,8 @@ bool QuantizedPoolingType(const nnvm::NodeAttrs& attrs,
   CHECK_EQ(in_type->size(), 3U);
   CHECK_EQ(out_type->size(), 3U);
   if (param.pool_type == pool_enum::kMaxPooling || param.pool_type == pool_enum::kAvgPooling) {
-#if MXNET_USE_MKLDNN  == 1
-    TYPE_ASSIGN_CHECK(*out_type, 0, (*in_type)[0]);
-#else
     TYPE_ASSIGN_CHECK(*in_type, 0, mshadow::kInt8);
     TYPE_ASSIGN_CHECK(*out_type, 0, mshadow::kInt8);
-#endif
   } else {
     LOG(FATAL) << "QuantizedPoolingOp only supports pool_type=max/avg for now";
   }
@@ -122,14 +115,7 @@ inline static bool QuantizedPoolingStorageType(const nnvm::NodeAttrs &attrs,
   CHECK_EQ(in_attrs->size(), 3);
 
   *dispatch_mode = DispatchMode::kFCompute;
-#if MXNET_USE_MKLDNN == 1
-  const PoolingParam &param = nnvm::get<PoolingParam>(attrs.parsed);
-  if (dev_mask == mshadow::cpu::kDevMask && SupportMKLDNNPooling(param)) {
-    *dispatch_mode = DispatchMode::kFComputeEx;
-  }
-#else
   CHECK_EQ(out_attrs->size(), 3);
-#endif
   for (int& out_attr : *out_attrs)
     out_attr = kDefaultStorage;
   return true;

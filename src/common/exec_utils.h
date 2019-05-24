@@ -59,17 +59,10 @@ inline bool SetupDefaultBlobsIn(const std::vector<NDArray>& src,
   for (size_t i = 0; i < src.size(); i++) {
     auto& nd = src[i];
     bool is_default = nd.storage_type() == kDefaultStorage;
-#if MXNET_USE_MKLDNN == 1
-    // We have to make sure it's default storage and default layout.
-    is_default = nd.IsDefaultData();
-#endif
     if (!is_default) {
       (*idx_map)[i] = temp_dst->size();
       NDArray temp = bufs != nullptr ? bufs->at(i) : NDArray(nd.shape(), nd.ctx(),
                                                              true, nd.dtype());
-#if MXNET_USE_MKLDNN == 1
-      CHECK(temp.IsDefaultData());
-#endif
       temp_src->emplace_back(nd);
       temp_dst->emplace_back(temp);
       blobs->emplace_back(temp.data());
@@ -91,33 +84,9 @@ inline bool SetupDefaultBlobsOut(const std::vector<NDArray>& src,
   for (size_t i = 0; i < src.size(); i++) {
     auto& nd = src[i];
     bool is_default = nd.storage_type() == kDefaultStorage;
-#if MXNET_USE_MKLDNN == 1
-    if (req->at(i) == kWriteInplace && nd.IsMKLDNNData())
-      // If it's write inplace and the output array doesn't use the default
-      // layout, we'll generate a temporary output array below, which means
-      // the input array and the output array are no longer the same array.
-      // we should change the request type.
-      req->at(i) = kWriteTo;
-    // We have to make sure it's default storage and default layout.
-    is_default = nd.IsDefaultData();
-#endif
     if (!is_default) {
-#if MXNET_USE_MKLDNN == 1
-      NDArray temp;
-      if (bufs != nullptr) {
-        temp = bufs->at(i);
-      } else if (kAddTo == req->at(i) && nd.IsMKLDNNData()) {
-        temp = nd.Reorder2Default();
-      } else if (kAddTo == req->at(i)) {
-        temp = nd;
-      } else {
-        temp = NDArray(nd.shape(), nd.ctx(), true, nd.dtype());
-      }
-      CHECK(temp.IsDefaultData());
-#else
       NDArray temp = bufs != nullptr ? bufs->at(i) : NDArray(nd.shape(), nd.ctx(),
           true, nd.dtype());
-#endif
       temp_src->emplace_back(nd);
       temp_dst->emplace_back(temp);
       blobs->emplace_back(temp.data());

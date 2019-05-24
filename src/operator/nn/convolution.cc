@@ -30,10 +30,6 @@
 #if MXNET_USE_NNPACK == 1
 #include "../nnpack/nnpack_pooling-inl.h"
 #endif  // MXNET_USE_NNPACK
-#if MXNET_USE_MKLDNN == 1
-#include "./mkldnn/mkldnn_base-inl.h"
-#include "./mkldnn/mkldnn_ops-inl.h"
-#endif  // MXNET_USE_MKLDNN
 
 namespace mxnet {
 namespace op {
@@ -50,38 +46,6 @@ static inline std::vector<std::string> ListArguments(const ConvolutionParam& par
     return {"data", "weight"};
   }
 }
-
-#if MXNET_USE_MKLDNN == 1
-static void ConvolutionComputeExCPU(const nnvm::NodeAttrs& attrs,
-                                    const OpContext& ctx,
-                                    const std::vector<NDArray>& inputs,
-                                    const std::vector<OpReqType>& req,
-                                    const std::vector<NDArray>& outputs) {
-  const ConvolutionParam& params = nnvm::get<ConvolutionParam>(attrs.parsed);
-  if (SupportMKLDNNConv(params, inputs[0])) {
-    MKLDNN_OPCHECK_INIT(false, outputs.size(), inputs, outputs);
-    MKLDNNConvolutionForward(attrs, ctx, inputs, req, outputs);
-    MKLDNN_OPCHECK_RUN(ConvolutionCompute<cpu>, attrs, ctx, inputs, req, outputs);
-    return;
-  }
-  FallBackCompute(ConvolutionCompute<cpu>, attrs, ctx, inputs, req, outputs);
-}
-
-static void ConvolutionGradComputeExCPU(const nnvm::NodeAttrs& attrs,
-                                        const OpContext& ctx,
-                                        const std::vector<NDArray>& inputs,
-                                        const std::vector<OpReqType>& req,
-                                        const std::vector<NDArray>& outputs) {
-  const ConvolutionParam& params = nnvm::get<ConvolutionParam>(attrs.parsed);
-  if (SupportMKLDNNConv(params, inputs[0])) {
-    MKLDNN_OPCHECK_INIT(true, outputs.size(), inputs, outputs);
-    MKLDNNConvolutionBackward(attrs, ctx, inputs, req, outputs);
-    MKLDNN_OPCHECK_RUN(ConvolutionGradCompute<cpu>, attrs, ctx, inputs, req, outputs);
-    return;
-  }
-  FallBackCompute(ConvolutionGradCompute<cpu>, attrs, ctx, inputs, req, outputs);
-}
-#endif
 
 static bool ConvolutionShape(const nnvm::NodeAttrs& attrs,
                              mxnet::ShapeVector *in_shape,
@@ -302,37 +266,6 @@ static bool ConvolutionType(const nnvm::NodeAttrs& attrs,
   return true;
 }
 
-#if MXNET_USE_MKLDNN == 1
-inline static bool ConvStorageType(const nnvm::NodeAttrs& attrs,
-                                   const int dev_mask,
-                                   DispatchMode* dispatch_mode,
-                                   std::vector<int>* in_attrs,
-                                   std::vector<int>* out_attrs) {
-  const ConvolutionParam& param = nnvm::get<ConvolutionParam>(attrs.parsed);
-  uint32_t in_expected = param.no_bias ? 2 : 3;
-  CHECK_EQ(in_attrs->size(), in_expected);
-  CHECK_EQ(out_attrs->size(), 1);
-
-  return MKLDNNStorageType(attrs, dev_mask, true, dispatch_mode, in_attrs,
-                           out_attrs);
-}
-
-inline static bool BackwardConvStorageType(const nnvm::NodeAttrs& attrs,
-                                           const int dev_mask,
-                                           DispatchMode* dispatch_mode,
-                                           std::vector<int> *in_attrs,
-                                           std::vector<int> *out_attrs) {
-  const ConvolutionParam& param = nnvm::get<ConvolutionParam>(attrs.parsed);
-  uint32_t in_expected = param.no_bias ? 3 : 4;
-  uint32_t out_expected = param.no_bias ? 2 : 3;
-  CHECK_EQ(in_attrs->size(), in_expected);
-  CHECK_EQ(out_attrs->size(), out_expected);
-
-  return MKLDNNStorageType(attrs, dev_mask, true, dispatch_mode, in_attrs,
-                           out_attrs);
-}
-#endif
-
 void ConvolutionParamParser(nnvm::NodeAttrs* attrs) {
   using namespace mshadow;
   ConvolutionParam param_;
@@ -490,14 +423,7 @@ There are other options to tune the performance.
 })
 .set_attr<mxnet::FInferShape>("FInferShape", ConvolutionShape)
 .set_attr<nnvm::FInferType>("FInferType", ConvolutionType)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<FInferStorageType>("FInferStorageType", ConvStorageType)
-#endif
 .set_attr<FCompute>("FCompute<cpu>", ConvolutionCompute<cpu>)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FComputeEx>("FComputeEx<cpu>", ConvolutionComputeExCPU)
-#endif
 .set_attr<nnvm::FGradient>("FGradient", ConvolutionGrad{"_backward_Convolution"})
 .set_attr<FResourceRequest>("FResourceRequest", [](const NodeAttrs& n) {
   return std::vector<ResourceRequest>{ResourceRequest::kTempSpace};
@@ -513,17 +439,10 @@ NNVM_REGISTER_OP(_backward_Convolution)
   return params.no_bias ? 2 : 3;
 })
 .set_attr<nnvm::TIsBackward>("TIsBackward", true)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<FInferStorageType>("FInferStorageType", BackwardConvStorageType)
-#endif
 .set_attr<FResourceRequest>("FResourceRequest", [](const NodeAttrs& n) {
   return std::vector<ResourceRequest>{ResourceRequest::kTempSpace};
 })
 .set_attr_parser(ConvolutionParamParser)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FComputeEx>("FComputeEx<cpu>", ConvolutionGradComputeExCPU)
-#endif
 .set_attr<FCompute>("FCompute<cpu>", ConvolutionGradCompute<cpu>);
 
 }  // namespace op

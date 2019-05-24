@@ -22,8 +22,10 @@ MKL-DNN related test cases
 import sys
 import os
 import logging
+import unittest
 
 
+@unittest.skip("skip the test for mkldnn...")
 def test_mkldnn_install():
     """
     This test will verify that MXNet is built/installed correctly when
