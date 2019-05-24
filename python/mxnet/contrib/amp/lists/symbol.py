@@ -21,9 +21,6 @@
 # Functions that should be cast to lower precision
 FP16_FUNCS = [
     'Convolution',
-    'Deconvolution',
-    'FullyConnected',
-    'RNN',
     ]
 
 # Functions that should not be casted, either because
@@ -354,6 +351,10 @@ FP16_FP32_FUNCS = [
 # Functions that have to be cast to FP32 due to possible
 # overflows
 FP32_FUNCS = [
+    'Deconvolution',
+    'FullyConnected',
+    'RNN',
+    'broadcast_mul',
     'BatchNorm',
     'Convolution_v1',
     'IdentityAttachKLSparseReg',
@@ -559,7 +560,6 @@ WIDEST_TYPE_CASTS = [
     'broadcast_minimum',
     'broadcast_minus',
     'broadcast_mod',
-    'broadcast_mul',
     'broadcast_not_equal',
     'broadcast_sub',
     'dot',

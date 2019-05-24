@@ -221,7 +221,7 @@ static inline mkldnn::memory::data_type get_mkldnn_type(int dtype) {
     case mshadow::kUint8:
       return mkldnn::memory::data_type::u8;
     default:
-      LOG(FATAL) << "unknown type for MKLDNN";
+      LOG(FATAL) << "unknown type for MKLDNN:" << dtype;
       return mkldnn::memory::data_type::data_undef;
   }
 }
@@ -240,7 +240,7 @@ static inline int get_mxnet_type(mkldnn_data_type_t dtype) {
     case mkldnn::memory::data_type::u8:
       return mshadow::kUint8;
     default:
-      LOG(FATAL) << "unknown MKLDNN type";
+      LOG(FATAL) << "unknown MKLDNN type: " << mkldnn_dtype;
       return mshadow::kFloat32;
   }
 }

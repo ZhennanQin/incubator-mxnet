@@ -436,13 +436,13 @@ For each window ``X``, the mathematical expression for Lp pooling is:
     return std::vector<std::string>{"output"};
 })
 .set_attr_parser(PoolingParamParser)
-#if MXNET_USE_MKLDNN == 1
+#if MXNET_USE_MKLDNN == 0
 .set_attr<FInferStorageType>("FInferStorageType", PoolingStorageType)
 #endif
 .set_attr<nnvm::FInferType>("FInferType", PoolingType)
 .set_attr<mxnet::FInferShape>("FInferShape", PoolingShape)
 .set_attr<FCompute>("FCompute<cpu>", PoolingCompute<cpu>)
-#if MXNET_USE_MKLDNN == 1
+#if MXNET_USE_MKLDNN == 0
 .set_attr<bool>("TIsMKLDNN", true)
 .set_attr<FComputeEx>("FComputeEx<cpu>", PoolingComputeExCPU)
 #endif

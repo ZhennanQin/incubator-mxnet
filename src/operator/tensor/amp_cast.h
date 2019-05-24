@@ -59,10 +59,12 @@ inline bool AMPCastType(const nnvm::NodeAttrs& attrs,
                         std::vector<int> *in_attrs,
                         std::vector<int> *out_attrs) {
   using mshadow::kFloat32;
+  using mshadow::kFloat16;
+  using mshadow::kBfloat16;
   const AMPCastParam& param = nnvm::get<AMPCastParam>(attrs.parsed);
   CHECK_EQ(in_attrs->size(), 1U);
   CHECK_EQ(out_attrs->size(), 1U);
-  if ((*in_attrs)[0] == kFloat32 || (*in_attrs)[0] == param.dtype) {
+  if ((*in_attrs)[0] == kFloat32 || (*in_attrs)[0] == kFloat16 || (*in_attrs)[0] == kBfloat16) {
     TYPE_ASSIGN_CHECK(*out_attrs, 0, param.dtype);
   } else {
     TYPE_ASSIGN_CHECK(*out_attrs, 0, (*in_attrs)[0]);
@@ -88,7 +90,7 @@ inline bool AMPMultiCastType(const nnvm::NodeAttrs& attrs,
       if ((*in_attrs)[i] == kFloat16 || (*in_attrs)[i] == kBfloat16) {
         widest_type = (*in_attrs)[i];
       } else if ((*out_attrs)[i] == kFloat16 || (*out_attrs)[i] == kBfloat16) {
-        widest_type = (*in_attrs)[i];
+        widest_type = (*out_attrs)[i];
       }
     }
   }

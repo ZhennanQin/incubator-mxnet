@@ -94,7 +94,7 @@ def _wrap_symbol_functions(module, target_dtype, target_precision_ops=None,
             inputs = sym.get_children()
             aux = sym.list_auxiliary_states()
             inputs = list(map(lambda x: _cast_symbol_NDArray(x, target_dtype)
-                              if x.name not in aux else x, inputs))
+                              if (x.name not in aux and not x.name.endswith("bias"))else x, inputs))
             atomic_sym = sym._gen_atomic_symbol()
             wrapped_sym = atomic_sym(*inputs)
             wrapped_sym._set_attr(name=sym.name)

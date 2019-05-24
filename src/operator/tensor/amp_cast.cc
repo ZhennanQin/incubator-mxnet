@@ -36,10 +36,11 @@ static void AMPCastExCPU(const nnvm::NodeAttrs& attrs,
                                    const std::vector<NDArray>& inputs,
                                    const std::vector<OpReqType>& req,
                                    const std::vector<NDArray>& outputs) {
-
   CHECK_EQ(inputs.size(), 1U);
   CHECK_EQ(outputs.size(), 1U);
-  const AMPCastParam& param = nnvm::get<AMPCastParam>(attrs.parsed);
+  if (req[0] == kWriteInplace) {
+    return;
+  }
   mkldnn::engine cpu_engine = mxnet::CpuEngine::Get()->get_engine();
   auto data = inputs[0];
   if (data.IsView() && data.IsMKLDNNData())
@@ -53,7 +54,7 @@ static void AMPCastExCPU(const nnvm::NodeAttrs& attrs,
   for (size_t i = 0; i < i_ndim; i++) {
     i_dims[i] = static_cast<int>(data.shape()[i]);
   }
-  const auto o_desc = mkldnn::memory::desc(i_dims, get_mkldnn_type(param.dtype), i_fmt);
+  const auto o_desc = mkldnn::memory::desc(i_dims, get_mkldnn_type(outputs[0].dtype()), i_fmt);
   const auto o_mpd = memory::primitive_desc(o_desc, cpu_engine);
   const auto out_mem = CreateMKLDNNMem(outputs[0], o_mpd, req[0]);
   MKLDNNStream::Get()->RegisterPrim(mkldnn::reorder(*i_mem, *out_mem.second));
@@ -65,7 +66,8 @@ inline static bool AMPCastStorageType(const nnvm::NodeAttrs& attrs, const int de
                                       std::vector<int>* out_attrs) {
   CHECK_EQ(in_attrs->size(), 1);
   CHECK_EQ(out_attrs->size(), 1);
-  return MKLDNNStorageType(attrs, dev_mask, true, dispatch_mode, in_attrs, out_attrs);
+  auto ret = MKLDNNStorageType(attrs, dev_mask, true, dispatch_mode, in_attrs, out_attrs);
+  return ret;
 }
 
 static void AMPMultiCastExCPU(const nnvm::NodeAttrs& attrs, const OpContext& ctx,
@@ -75,7 +77,10 @@ static void AMPMultiCastExCPU(const nnvm::NodeAttrs& attrs, const OpContext& ctx
   CHECK_EQ(inputs.size(), param.num_outputs);
   CHECK_EQ(outputs.size(), param.num_outputs);
   mkldnn::engine cpu_engine = mxnet::CpuEngine::Get()->get_engine();
-  for (size_t i = 0; i < param.num_outputs; ++i) {
+  for (int i = 0; i < param.num_outputs; ++i) {
+    if (req[i] == kWriteInplace) {
+      continue;
+    }
     auto data = inputs[i];
     if (data.IsView() && data.IsMKLDNNData()) data = data.Reorder2Default();
     const auto i_mem = data.GetMKLDNNData();

@@ -294,7 +294,7 @@ static bool ConvolutionType(const nnvm::NodeAttrs& attrs,
     if ((*in_type)[i] == -1) {
       (*in_type)[i] = dtype;
     } else {
-      UNIFORM_TYPE_CHECK((*in_type)[i], dtype, ListArguments(param_)[i]);
+      if (i != 2) UNIFORM_TYPE_CHECK((*in_type)[i], dtype, ListArguments(param_)[i]);
     }
   }
   out_type->clear();
