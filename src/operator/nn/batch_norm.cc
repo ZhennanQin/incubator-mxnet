@@ -400,11 +400,13 @@ void BatchNormComputeExCPU(const nnvm::NodeAttrs &attrs,
     std::vector<NDArray> in_data(inputs.begin(), inputs.begin() + batchnorm::kInMovingMean);
     std::vector<NDArray> aux_states(inputs.begin() + batchnorm::kInMovingMean, inputs.end());
 
-    if (inputs[0].dtype() == mshadow::kFloat32) {
+    if (inputs[0].dtype() == mshadow::kFloat32 || inputs[0].dtype() == mshadow::kBfloat16) {
       MKLDNN_OPCHECK_INIT(false, outputs.size(), inputs, outputs);
       MKLDNNBatchNormForward<float>(ctx, param, in_data, req, outputs, aux_states);
       MKLDNN_OPCHECK_RUN(BatchNormCompute<cpu>, attrs, ctx, inputs, req, outputs);
       return;
+    } else {
+      FallBackCompute(BatchNormCompute<cpu>, attrs, ctx, inputs, req, outputs);
     }
   }
   FallBackCompute(BatchNormCompute<cpu>, attrs, ctx, inputs, req, outputs);

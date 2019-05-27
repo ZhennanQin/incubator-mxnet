@@ -28,7 +28,17 @@ FP16_FUNCS = [
 # like image transformations or optimizers) or they
 # are dtype neutral (can work in both fp16 and fp32)
 FP16_FP32_FUNCS = [
+    'BatchNorm',
+    '_add',
+    ]
 
+# Functions that have to be cast to FP32 due to possible
+# overflows
+FP32_FUNCS = [
+    'Pooling',
+    'Deconvolution',
+    'FullyConnected',
+    'RNN',
     'BatchNorm_v1',
     'BilinearSampler',
     'BlockGrad',
@@ -43,7 +53,6 @@ FP16_FP32_FUNCS = [
     'Flatten',
     'GridGenerator',
     'Pad',
-    'Pooling',
     'Pooling_v1',
     'ROIPooling',
     'Reshape',
@@ -77,7 +86,6 @@ FP16_FP32_FUNCS = [
     '_RMinusScalar',
     '_RModScalar',
     '_adamw_update',
-    '_add',
     '_arange',
     '_broadcast_backward',
     '_cond',
@@ -232,8 +240,6 @@ FP16_FP32_FUNCS = [
     'abs',
     'adam_update',
     'all_finite',
-    'amp_cast',
-    'amp_multicast',
     'arccosh',
     'arcsinh',
     'arctan',
@@ -344,18 +350,7 @@ FP16_FP32_FUNCS = [
     'zeros_like',
     '_sg_mkldnn_conv',
     '_sg_mkldnn_fully_connected',
-    'CuDNNBatchNorm',
-    '_TensorRT',
-    ]
-
-# Functions that have to be cast to FP32 due to possible
-# overflows
-FP32_FUNCS = [
-    'Deconvolution',
-    'FullyConnected',
-    'RNN',
     'broadcast_mul',
-    'BatchNorm',
     'Convolution_v1',
     'IdentityAttachKLSparseReg',
     'arccos',

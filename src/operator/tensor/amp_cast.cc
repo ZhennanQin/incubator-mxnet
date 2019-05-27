@@ -147,6 +147,11 @@ NNVM_REGISTER_OP(_backward_amp_cast)
   [](const NodeAttrs& attrs){
     return std::vector<bool>{true};
   })
+#if MXNET_USE_MKLDNN == 1
+.set_attr<bool>("TIsMKLDNN", true)
+.set_attr<FInferStorageType>("FInferStorageType", AMPCastStorageType)
+.set_attr<FComputeEx>("FComputeEx<cpu>", AMPCastExCPU)
+#endif
 .set_attr<FCompute>("FCompute<cpu>", AMPCastCompute<cpu>);
 
 NNVM_REGISTER_OP(amp_multicast)
@@ -236,6 +241,11 @@ NNVM_REGISTER_OP(_backward_amp_multicast)
     int num_args = dmlc::get<AMPMultiCastParam>(attrs.parsed).num_outputs;
     return std::vector<bool>(num_args, true);
   })
+#if MXNET_USE_MKLDNN == 1
+    .set_attr<bool>("TIsMKLDNN", true)
+    .set_attr<FInferStorageType>("FInferStorageType", AMPMultiCastStorageType)
+    .set_attr<FComputeEx>("FComputeEx<cpu>", AMPMultiCastExCPU)
+#endif
 .set_attr<FCompute>("FCompute<cpu>", AMPMultiCastCompute<cpu>)
 .add_argument("grad", "NDArray-or-Symbol[]", "Gradients")
 .add_arguments(AMPMultiCastParam::__FIELDS__());
