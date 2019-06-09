@@ -26,10 +26,6 @@
 #include <vector>
 #include "quantization_utils.h"
 #include "../nn/fully_connected-inl.h"
-#if MXNET_USE_MKLDNN == 1
-#include "../nn/mkldnn/mkldnn_fully_connected-inl.h"
-#include "mkldnn/mkldnn_quantized_ops-inl.h"
-#endif
 
 namespace mxnet {
 namespace op {
@@ -88,13 +84,7 @@ bool QuantizedFullyConnectedType(const nnvm::NodeAttrs& attrs,
   CHECK_EQ(in_type->size(), num_inputs * 3);
   CHECK_EQ(out_type->size(), 3U);
 
-#if MXNET_USE_MKLDNN == 1
-  CHECK(in_type->at(0) == mshadow::kInt8 || in_type->at(0) == mshadow::kUint8)
-      << "QuantizedFullyConnected only supports int8/uint8 input, while "
-      << in_type->at(0) << " is given.";
-#else
   TYPE_ASSIGN_CHECK(*in_type, 0, mshadow::kInt8);
-#endif
   for (size_t i = 1; i < num_inputs; ++i) {
     TYPE_ASSIGN_CHECK(*in_type, i, mshadow::kInt8);
   }
@@ -118,10 +108,6 @@ bool QuantizedFullyConnectedStorageType(const nnvm::NodeAttrs& attrs,
   CHECK_EQ(in_attrs->size(), num_inputs * 3);
   CHECK_EQ(out_attrs->size(), 3U);
 
-#if MXNET_USE_MKLDNN == 1
-  return MKLDNNStorageType(attrs, dev_mask, true,
-                           dispatch_mode, in_attrs, out_attrs);
-#else
   *dispatch_mode = DispatchMode::kFCompute;
 
   for (auto &v : *out_attrs) {
@@ -138,7 +124,6 @@ bool QuantizedFullyConnectedStorageType(const nnvm::NodeAttrs& attrs,
     }
   }
   return true;
-#endif
 }
 
 struct QuantizedSumInitKernelWithBias {
@@ -286,15 +271,6 @@ void QuantizedFullyConnectedForwardCPU(const nnvm::NodeAttrs& attrs,
 #endif
 }
 
-#if MXNET_USE_MKLDNN == 1
-void QuantizedFullyConnectedForwardExCPU(const nnvm::NodeAttrs &attrs,
-                                         const OpContext &ctx,
-                                         const std::vector<NDArray> &in_data,
-                                         const std::vector<OpReqType> &req,
-                                         const std::vector<NDArray> &out_data) {
-  MKLDNNQuantizedFullyConnectedForward(attrs, ctx, in_data, req, out_data);
-}
-#endif
 
 NNVM_REGISTER_OP(_contrib_quantized_fully_connected)
 .describe(R"code(Fully Connected operator for input, weight and bias data type of int8,
@@ -335,10 +311,6 @@ and max thresholds representing the threholds for quantizing the float32 output 
 .set_attr<nnvm::FGradient>("FGradient", MakeZeroGradNodes)
 .set_attr<FNeedRequantize>("FNeedRequantize", [](const NodeAttrs& attrs) { return true; })
 .set_attr<FCompute>("FCompute<cpu>", QuantizedFullyConnectedForwardCPU)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FComputeEx>("FComputeEx<cpu>", QuantizedFullyConnectedForwardExCPU)
-#endif
 .set_attr<FResourceRequest>("FResourceRequest",
   [](const NodeAttrs& attrs) {
     return std::vector<ResourceRequest>{ResourceRequest::kTempSpace};

@@ -23,8 +23,6 @@
  * \brief fully connect operator
 */
 #include "./fully_connected-inl.h"
-#include "./mkldnn/mkldnn_ops-inl.h"
-#include "./mkldnn/mkldnn_base-inl.h"
 #if MXNET_USE_NNPACK == 1
 #include "../nnpack/nnpack_fully_connected-inl.h"
 #endif  // MXNET_USE_NNPACK
@@ -97,38 +95,6 @@ void FullyConnectedComputeExCPU(const nnvm::NodeAttrs& attrs,
     valid_bias = inputs[2].storage_type() == kDefaultStorage ||
                  inputs[2].storage_type() == kRowSparseStorage;
   }
-#if MXNET_USE_MKLDNN == 1
-  if (common::ContainsOnlyStorage(inputs, kDefaultStorage) &&
-      common::ContainsOnlyStorage(outputs, kDefaultStorage)) {
-    if (SupportMKLDNNFC(inputs[0])) {
-      MKLDNN_OPCHECK_INIT(false, outputs.size(), inputs, outputs);
-      MKLDNNFCForward(attrs, ctx, inputs, req, outputs);
-      MKLDNN_OPCHECK_RUN(FullyConnectedCompute<cpu>, attrs, ctx, inputs, req,
-                         outputs);
-    } else {
-      FallBackCompute(FullyConnectedCompute<cpu>, attrs, ctx, inputs, req, outputs);
-    }
-    return;
-  } else if (valid_data && valid_weight && valid_bias && valid_out) {
-    // inputs
-    std::vector<NDArray> temp_ndarrays;
-    std::vector<TBlob> in_blobs;
-    for (const NDArray& in : inputs) {
-      // if ndarray is in default storage and MKLDNN is available,
-      // need to make sure cpu layout data is used, instead of MKL layout
-      if (in.storage_type() == kDefaultStorage) {
-        temp_ndarrays.push_back(in.Reorder2Default());
-        in_blobs.emplace_back(temp_ndarrays.back().data());
-      } else {
-        in_blobs.emplace_back(in.data());
-      }
-    }
-    // output
-    FullyConnectedCompute<cpu>(attrs, ctx, in_blobs, req, {outputs[0].data()});
-  } else {
-    LogUnimplementedOp(attrs, ctx, inputs, req, outputs);
-  }
-#else
   if (valid_data && valid_weight && valid_bias && valid_out) {
     std::vector<TBlob> in_blobs(inputs.size());
     for (size_t i = 0; i < in_blobs.size(); i++) in_blobs[i] = inputs[i].data();
@@ -138,25 +104,7 @@ void FullyConnectedComputeExCPU(const nnvm::NodeAttrs& attrs,
   } else {
     LogUnimplementedOp(attrs, ctx, inputs, req, outputs);
   }
-#endif
 }
-
-#if MXNET_USE_MKLDNN == 1
-void FullyConnectedGradComputeExCPU(const nnvm::NodeAttrs& attrs,
-                                    const OpContext &ctx,
-                                    const std::vector<NDArray> &inputs,
-                                    const std::vector<OpReqType> &req,
-                                    const std::vector<NDArray> &outputs) {
-  if (SupportMKLDNNFC(inputs[0])) {
-    MKLDNN_OPCHECK_INIT(true, outputs.size(), inputs, outputs);
-    MKLDNNFCBackward(attrs, ctx, inputs, req, outputs);
-    MKLDNN_OPCHECK_RUN(FullyConnectedGradCompute<cpu>, attrs, ctx, inputs, req,
-                       outputs);
-    return;
-  }
-  FallBackCompute(FullyConnectedGradCompute<cpu>, attrs, ctx, inputs, req, outputs);
-}
-#endif
 
 static bool FullyConnectedType(const nnvm::NodeAttrs& attrs,
                                std::vector<int> *in_type, std::vector<int> *out_type) {
@@ -199,10 +147,6 @@ inline static bool FCStorageType(const nnvm::NodeAttrs& attrs,
     dispatched = storage_type_assign(out_attrs, mxnet::kDefaultStorage,
                                      dispatch_mode, DispatchMode::kFComputeEx);
   }
-#if MXNET_USE_MKLDNN == 1
-  if (!MKLDNNEnvSet())
-    *dispatch_mode = DispatchMode::kFComputeFallback;
-#endif
 
   if (!dispatched) {
     dispatched = dispatch_fallback(out_attrs, dispatch_mode);
@@ -233,10 +177,6 @@ inline static bool BackwardFCStorageType(const nnvm::NodeAttrs& attrs,
     dispatched = storage_type_assign(out_attrs, mxnet::kDefaultStorage,
                                      dispatch_mode, DispatchMode::kFCompute);
   }
-#if MXNET_USE_MKLDNN == 1
-  if (!MKLDNNEnvSet())
-    *dispatch_mode = DispatchMode::kFComputeFallback;
-#endif
   return dispatched;
 }
 
@@ -294,12 +234,6 @@ If ``no_bias`` is set to be true, then the ``bias`` term is ignored.
     [](const NodeAttrs& attrs) {
     return std::vector<std::string>{"output"};
 })
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FResourceRequest>("FResourceRequest", [](const NodeAttrs& n) {
-  return std::vector<ResourceRequest>{ResourceRequest::kTempSpace};
-})
-#endif
 .set_attr<mxnet::FInferShape>("FInferShape", FullyConnectedShape)
 .set_attr<nnvm::FInferType>("FInferType", FullyConnectedType)
 .set_attr<FCompute>("FCompute<cpu>", FullyConnectedCompute<cpu>)
@@ -316,21 +250,12 @@ NNVM_REGISTER_OP(_backward_FullyConnected)
   const FullyConnectedParam& params = nnvm::get<FullyConnectedParam>(attrs.parsed);
   return params.no_bias ? 2 : 3;
 })
-#if MXNET_USE_MKLDNN == 1
-.set_attr<FResourceRequest>("FResourceRequest", [](const NodeAttrs& n) {
-  return std::vector<ResourceRequest>{ResourceRequest::kTempSpace};
-})
-#endif
 .set_attr<nnvm::TIsBackward>("TIsBackward", true)
 .set_attr<nnvm::FInplaceOption>("FInplaceOption", [](const NodeAttrs& attrs){
   return std::vector<std::pair<int, int> >{{1, 0}};
 })
 .set_attr<FInferStorageType>("FInferStorageType", BackwardFCStorageType)
 .set_attr_parser(ParamParser<FullyConnectedParam>)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FComputeEx>("FComputeEx<cpu>", FullyConnectedGradComputeExCPU)
-#endif
 .set_attr<FCompute>("FCompute<cpu>", FullyConnectedGradCompute<cpu>);
 
 }  // namespace op

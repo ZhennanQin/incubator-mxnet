@@ -24,9 +24,6 @@
  */
 #include "./requantize-inl.h"
 #include "./quantize-inl.h"
-#if MXNET_USE_MKLDNN == 1
-#include "./mkldnn/mkldnn_requantize-inl.h"
-#endif
 
 namespace mxnet {
 namespace op {
@@ -38,11 +35,6 @@ bool RequantizeStorageType(const nnvm::NodeAttrs& attrs,
                          std::vector<int> *in_attrs,
                          std::vector<int> *out_attrs) {
   *dispatch_mode = DispatchMode::kFCompute;
-#if MXNET_USE_MKLDNN == 1
-  if (dev_mask == mshadow::cpu::kDevMask) {
-    *dispatch_mode = DispatchMode::kFComputeEx;
-  }
-#endif
   (*out_attrs)[0] = kDefaultStorage;
   (*out_attrs)[1] = kDefaultStorage;
   (*out_attrs)[2] = kDefaultStorage;
@@ -71,12 +63,7 @@ inference accuracy.
 // TODO(Xinyu): a temp solution to enable GluonCV INT8 flow,
 // will be reverted after the improvement of CachedOP is done.
 .set_attr<nnvm::FGradient>("FGradient", MakeZeroGradNodes)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FComputeEx>("FComputeEx<cpu>", MKLDNNRequantizeForward)
-#else
 .set_attr<FCompute>("FCompute<cpu>", RequantizeForward<cpu>)
-#endif
 .set_attr<FResourceRequest>("FResourceRequest", [](const NodeAttrs& attrs) {
     const RequantizeParam& param =
       nnvm::get<RequantizeParam>(attrs.parsed);

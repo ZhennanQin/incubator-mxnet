@@ -23,9 +23,6 @@
  * \brief
  */
 #include "./dequantize-inl.h"
-#if MXNET_USE_MKLDNN == 1
-#include "./mkldnn/mkldnn_dequantize-inl.h"
-#endif
 
 namespace mxnet {
 namespace op {
@@ -37,11 +34,6 @@ bool DequantizeStorageType(const nnvm::NodeAttrs& attrs,
                            std::vector<int> *in_attrs,
                            std::vector<int> *out_attrs) {
   *dispatch_mode = DispatchMode::kFCompute;
-#if MXNET_USE_MKLDNN == 1
-  if (dev_mask == mshadow::cpu::kDevMask) {
-    *dispatch_mode = DispatchMode::kFComputeEx;
-  }
-#endif
   (*out_attrs)[0] = kDefaultStorage;
   (*out_attrs)[1] = kDefaultStorage;
   (*out_attrs)[2] = kDefaultStorage;
@@ -55,11 +47,7 @@ static OpStatePtr CreateDequantizeState(const nnvm::NodeAttrs &attrs, Context ct
   if (ctx.dev_type == kGPU) {
     state = OpStatePtr::Create<DequantizeOperator<gpu>>(attrs);
   } else {
-#if MXNET_USE_MKLDNN == 1
-    state = OpStatePtr::Create<SgMKLDNNDequantizeOperator>(attrs);
-#else
     state = OpStatePtr::Create<DequantizeOperator<cpu>>(attrs);
-#endif
   }
   return state;
 }
@@ -95,10 +83,6 @@ by keep zero centered for the quantized value:
 // will be reverted after the improvement of CachedOP is done.
 .set_attr<nnvm::FGradient>("FGradient", MakeZeroGradNodes)
 .set_attr<FCreateOpState>("FCreateOpState", CreateDequantizeState)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FStatefulComputeEx>("FStatefulComputeEx<cpu>", SgMKLDNNDequantizeForward)
-#endif
 .set_attr<FStatefulCompute>("FStatefulCompute<cpu>", DequantizeForward<cpu>)
 .add_argument("data", "NDArray-or-Symbol", "A ndarray/symbol of type `uint8`")
 .add_argument("min_range", "NDArray-or-Symbol", "The minimum scalar value "

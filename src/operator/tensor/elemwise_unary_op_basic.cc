@@ -24,7 +24,6 @@
 #include <mxnet/base.h>
 #include "elemwise_unary_op.h"
 #include "./elemwise_binary_op-inl.h"
-#include "../nn/mkldnn/mkldnn_ops-inl.h"
 
 namespace mxnet {
 namespace op {
@@ -158,20 +157,6 @@ static void CopyEx(const nnvm::NodeAttrs& attrs,
                    const std::vector<NDArray>& outputs) {
   CHECK_EQ(inputs.size(), 1U);
   CHECK_EQ(outputs.size(), 1U);
-#if MXNET_USE_MKLDNN == 1
-  const auto in_stype = inputs[0].storage_type();
-  const auto out_stype = outputs[0].storage_type();
-  if (inputs[0].IsMKLDNNData()) {
-    MKLDNNCopy(attrs, ctx, inputs[0], req[0], outputs[0]);
-    return;
-  } else if (in_stype == kDefaultStorage && out_stype == kDefaultStorage) {
-    // This happens if inputs are supposed to be in MKLDNN format
-    // but MKLDNN doesn't support the data type or the shape. We're
-    // forced to convert it to the default format.
-    FallBackCompute(UnaryOp::IdentityCompute<cpu>, attrs, ctx, inputs, req, outputs);
-    return;
-  }
-#endif
   UnaryOp::IdentityComputeEx<cpu>(attrs, ctx, inputs, req, outputs);
 }
 
@@ -184,15 +169,6 @@ static inline bool CopyStorageType(const nnvm::NodeAttrs& attrs,
   CHECK_EQ(out_attrs->size(), 1);
   bool ret = ElemwiseStorageType<1, 1, false, true, true>(attrs, dev_mask, dispatch_mode,
                                                           in_attrs, out_attrs);
-#if MXNET_USE_MKLDNN == 1
-  // We have to make sure all inputs are default layouts. Otherwise, we might
-  // want to fallback.
-  if (dev_mask == mshadow::cpu::kDevMask
-      && in_attrs->at(0) == kDefaultStorage
-      && out_attrs->at(0) == kDefaultStorage) {
-    *dispatch_mode = DispatchMode::kFComputeEx;
-  }
-#endif
   return ret;
 }
 
@@ -202,12 +178,6 @@ MXNET_OPERATOR_REGISTER_UNARY(_copy)
 .set_attr<FInferStorageType>("FInferStorageType", CopyStorageType)
 .set_attr<FCompute>("FCompute<cpu>", UnaryOp::IdentityCompute<cpu>)
 .set_attr<FComputeEx>("FComputeEx<cpu>", CopyEx)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<FResourceRequest>("FResourceRequest", [](const NodeAttrs& n) {
-  return std::vector<ResourceRequest>{ResourceRequest::kTempSpace};
-})
-.set_attr<bool>("TIsMKLDNN", true)
-#endif
 .set_attr<nnvm::FInplaceIdentity>("FInplaceIdentity",
   [](const NodeAttrs& attrs){
     return std::vector<bool>{true};
@@ -225,12 +195,6 @@ NNVM_REGISTER_OP(_backward_copy)
 .set_attr<FInferStorageType>("FInferStorageType", CopyStorageType)
 .set_attr<FCompute>("FCompute<cpu>", UnaryOp::IdentityCompute<cpu>)
 .set_attr<FComputeEx>("FComputeEx<cpu>", CopyEx)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FResourceRequest>("FResourceRequest", [](const NodeAttrs& n) {
-  return std::vector<ResourceRequest>{ResourceRequest::kTempSpace};
-})
-#endif
 .set_attr<nnvm::FInplaceIdentity>("FInplaceIdentity",
   [](const NodeAttrs& attrs){
     return std::vector<bool>{true};

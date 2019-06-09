@@ -24,9 +24,6 @@
  * \author Bing Xu, Zhang Rong A
 */
 #include "./softmax_output-inl.h"
-#if MXNET_USE_MKLDNN == 1
-#include "./nn/mkldnn/mkldnn_ops-inl.h"
-#endif
 namespace mxnet {
 namespace op {
 
@@ -121,35 +118,6 @@ static bool SoftmaxOutputShape(const nnvm::NodeAttrs& attrs,
   return true;
 }
 
-#if MXNET_USE_MKLDNN == 1
-inline static bool SoftmaxOutputStorageType(const nnvm::NodeAttrs& attrs,
-                                            const int dev_mask,
-                                            DispatchMode* dispatch_mode,
-                                            std::vector<int>* in_attrs,
-                                            std::vector<int>* out_attrs) {
-  CHECK_EQ(in_attrs->size(), 2);
-  CHECK_EQ(out_attrs->size(), 1);
-
-  return MKLDNNStorageType(attrs, dev_mask, true, dispatch_mode, in_attrs,
-                           out_attrs);
-}
-
-void SoftmaxOutputComputeExCPU(const nnvm::NodeAttrs &attrs,
-                               const OpContext &ctx,
-                               const std::vector<NDArray> &inputs,
-                               const std::vector<OpReqType> &req,
-                               const std::vector<NDArray> &outputs) {
-  CHECK_EQ(inputs.size(), 2U);
-  const SoftmaxOutputParam &param = nnvm::get<SoftmaxOutputParam>(attrs.parsed);
-  if (SupportMKLDNN(inputs[0]) && !ctx.is_train && SupportMKLDNNSoftmaxOutput(param)) {
-    MKLDNN_OPCHECK_INIT(false, outputs.size(), inputs, outputs);
-    MKLDNNSoftmaxOutputForward(attrs, ctx, inputs, req, outputs);
-    MKLDNN_OPCHECK_RUN(SoftmaxOutputCompute<cpu>, attrs, ctx, inputs, req, outputs);
-    return;
-  }
-  FallBackCompute(SoftmaxOutputCompute<cpu>, attrs, ctx, inputs, req, outputs);
-}
-#endif
 
 NNVM_REGISTER_OP(SoftmaxOutput)
 .describe(R"code(Computes the gradient of cross entropy loss with respect to softmax output.
@@ -231,11 +199,6 @@ NNVM_REGISTER_OP(SoftmaxOutput)
 .set_num_inputs(2)
 .set_num_outputs(1)
 .set_attr_parser(ParamParser<SoftmaxOutputParam>)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<FInferStorageType>("FInferStorageType", SoftmaxOutputStorageType)
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FComputeEx>("FComputeEx<cpu>", SoftmaxOutputComputeExCPU)
-#endif
 .set_attr<nnvm::FListInputNames>("FListInputNames", [](const NodeAttrs& attrs) {
   return std::vector<std::string>{"data", "label"};
 })

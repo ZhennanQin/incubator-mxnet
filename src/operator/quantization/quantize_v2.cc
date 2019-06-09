@@ -24,9 +24,6 @@
  */
 
 #include "./quantize_v2-inl.h"
-#if MXNET_USE_MKLDNN == 1
-#include "./mkldnn/mkldnn_quantize_v2-inl.h"
-#endif
 
 namespace mxnet {
 namespace op {
@@ -36,11 +33,6 @@ static bool QuantizeV2StorageType(const nnvm::NodeAttrs& attrs, const int dev_ma
                                   DispatchMode* dispatch_mode, std::vector<int>* in_attrs,
                                   std::vector<int>* out_attrs) {
   *dispatch_mode = DispatchMode::kFCompute;
-#if MXNET_USE_MKLDNN == 1
-  if (dev_mask == mshadow::cpu::kDevMask) {
-    *dispatch_mode = DispatchMode::kFComputeEx;
-  }
-#endif
   (*out_attrs)[0] = kDefaultStorage;
   (*out_attrs)[1] = kDefaultStorage;
   (*out_attrs)[2] = kDefaultStorage;
@@ -54,11 +46,7 @@ static OpStatePtr CreateQuantizeV2State(const nnvm::NodeAttrs& attrs, Context ct
   if (ctx.dev_type == kGPU) {
     state = OpStatePtr::Create<QuantizeV2Operator<gpu>>(attrs);
   } else {
-#if MXNET_USE_MKLDNN == 1
-    state = OpStatePtr::Create<SgMKLDNNQuantizeOperator>(attrs);
-#else
     state = OpStatePtr::Create<QuantizeV2Operator<cpu>>(attrs);
-#endif
   }
   return state;
 }
@@ -103,10 +91,6 @@ If min_calib_range isn't presented, the output type will be int8.
 // will be reverted after the improvement of CachedOP is done.
 .set_attr<nnvm::FGradient>("FGradient", MakeZeroGradNodes)
 .set_attr<FCreateOpState>("FCreateOpState", CreateQuantizeV2State)
-#if MXNET_USE_MKLDNN == 1
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FStatefulComputeEx>("FStatefulComputeEx<cpu>", SgMKLDNNQuantizeForward)
-#endif
 .set_attr<FStatefulCompute>("FStatefulCompute<cpu>", QuantizeV2Forward<cpu>)
 .set_attr<nnvm::FInplaceOption>("FInplaceOption", [](const NodeAttrs& attrs) {
   return std::vector<std::pair<int, int> >{{0, 0}};
