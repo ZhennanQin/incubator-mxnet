@@ -1,6 +1,6 @@
 [submodule "3rdparty/mshadow"]
 	path = 3rdparty/mshadow
-	url = https://github.com/dmlc/mshadow.git
+	url = https://github.com/ZhennanQin/mshadow.git
 [submodule "3rdparty/dmlc-core"]
 	path = 3rdparty/dmlc-core
 	url = https://github.com/dmlc/dmlc-core.git
@@ -9,7 +9,7 @@
 	url = https://github.com/dmlc/ps-lite
 [submodule "3rdparty/dlpack"]
 	path = 3rdparty/dlpack
-	url = https://github.com/dmlc/dlpack
+	url = https://github.com/ZhennanQin/dlpack
 [submodule "3rdparty/openmp"]
 	path = 3rdparty/openmp
 	url = https://github.com/llvm-mirror/openmp
@@ -22,7 +22,7 @@
 	branch = master
 [submodule "3rdparty/tvm"]
 	path = 3rdparty/tvm
-	url = https://github.com/dmlc/tvm
+	url = https://github.com/ZhennanQin/tvm
 [submodule "3rdparty/onnx-tensorrt"]
 	path = 3rdparty/onnx-tensorrt
 	url = https://github.com/onnx/onnx-tensorrt.git
