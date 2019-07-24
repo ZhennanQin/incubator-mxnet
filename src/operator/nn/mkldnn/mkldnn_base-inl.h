@@ -47,9 +47,12 @@
 #define MXNET_OPERATOR_NN_MKLDNN_MKLDNN_BASE_INL_H_
 
 #if MXNET_USE_MKLDNN == 1
+#include <algorithm>
+#include <utility>
+#include <vector>
 #include "mxnet/ndarray.h"
-#include "mxnet/resource.h"
 #include "mxnet/op_attr_types.h"
+#include "mxnet/resource.h"
 
 namespace mxnet {
 
@@ -68,14 +71,14 @@ class CpuEngine {
   CpuEngine &operator=(CpuEngine const &) = delete;  // Copy assign
   CpuEngine &operator=(CpuEngine &&) = delete;       // Move assign
 
-  mkldnn::engine &get_engine() { return _cpu_engine; }
+  mkldnn::engine &get_engine() { return cpu_engine_; }
 
  protected:
-  CpuEngine() : _cpu_engine(mkldnn::engine::kind::cpu, 0) {}
+  CpuEngine() : cpu_engine_(mkldnn::engine::kind::cpu, 0) {}
   ~CpuEngine() {}
 
  private:
-  mkldnn::engine _cpu_engine;
+  mkldnn::engine cpu_engine_;
 };
 
 static inline bool SupportStorageMKLDNN(int stype) {
@@ -216,9 +219,8 @@ class TmpMemMgr {
 };
 
 class MKLDNNStream {
-  // std::vector<std::unordered_map<int, mkldnn::memory>> net_args;
-  // std::vector<mkldnn::primitive> net;
-  std::vector<std::pair<mkldnn::primitive, std::unordered_map<int, mkldnn::memory>>> net_prim_args;
+  typedef std::unordered_map<int, mkldnn::memory> mkldnn_args_map;
+  std::vector<std::pair<mkldnn::primitive, mkldnn_args_map>> net_prim_args;
   // Here we hold all memory related to the operators in the stream.
   std::vector<std::shared_ptr<const mkldnn::memory> > mem_holder;
   mkldnn::stream s;
@@ -228,8 +230,8 @@ class MKLDNNStream {
   MKLDNNStream():s(CpuEngine::Get()->get_engine()) {}
 
   void RegisterPrimArgs(const mkldnn::primitive &prim,
-                        const std::unordered_map<int, mkldnn::memory> &net_args) {
-    net_prim_args.push_back(make_pair(prim, net_args));
+                        const mkldnn_args_map &net_args) {
+    net_prim_args.emplace_back(prim, net_args);
   }
 
   void RegisterMem(std::shared_ptr<const mkldnn::memory> mem) {
@@ -272,9 +274,9 @@ typedef std::pair<OutDataOp, mkldnn::memory *> mkldnn_output_t;
 void MKLDNNCopy(const mkldnn::memory &mem, const mkldnn::memory* this_mem);
 
 // need check and remove this function
-static inline bool SameFormat(
-    mkldnn::memory::desc desc_a, mkldnn::memory::desc desc_b) {
-  LOG(FATAL) << "mkldnn v1.0 not use SameFormat(desc_a, desc_b) any more; please rm where it called";
+static inline bool SameFormat(mkldnn::memory::desc desc_a, mkldnn::memory::desc desc_b) {
+  LOG(FATAL)
+      << "mkldnn v1.0 not use SameFormat(desc_a, desc_b) any more; please rm where it called";
 }
 
 /*
@@ -487,4 +489,3 @@ bool MKLDNNStorageType(const nnvm::NodeAttrs &attrs,
 }  // namespace mxnet
 #endif
 #endif  // MXNET_OPERATOR_NN_MKLDNN_MKLDNN_BASE_INL_H_
-
