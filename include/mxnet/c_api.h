@@ -1773,12 +1773,14 @@ MXNET_DLL int MXSymbolInferTypePartial(SymbolHandle sym,
  * \param offline_params array of c strings representing the names of params quantized offline
  * \param quantized_dtype the quantized destination type for input data
  * \param calib_quantize **Deprecated**. quantize op will always be calibrated if could
+ * \param quantize_mode quantize mode to be used in quantize pass
  */
 MXNET_DLL int MXQuantizeSymbol(SymbolHandle sym_handle, SymbolHandle *ret_sym_handle,
                                const mx_uint num_excluded_symbols,
                                const char **excluded_symbols,
                                const mx_uint num_offline, const char **offline_params,
-                               const char *quantized_dtype, const bool calib_quantize);
+                               const char *quantized_dtype, const bool calib_quantize,
+                               const char *quantize_mode);
 
 /*!
  * \brief Convert a symbol into a mixed precision symbol with cast operators for target dtype casting
