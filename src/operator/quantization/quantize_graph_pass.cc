@@ -255,7 +255,7 @@ Graph QuantizeGraph(Graph &&src) {
     // If the currently visited node needs quantization, insert a quantize op node before the
     // current node and replace the current node with the quantized version in the new graph.
     if (quantized_node_map.count(node)) {
-      std::cout << node->attrs.name << " is quantized.";
+      std::cout << node->attrs.name << " is quantized." << std::endl;
       new_node = quantized_node_map[node];
 
       // add data into quantized op input

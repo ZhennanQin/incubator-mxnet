@@ -62,7 +62,8 @@ void NaiveCalibrate(const CalibrateParam& param, const TBlob& data, const TBlob&
 // Given a discrete distribution (may have not been normalized to 1),
 // smooth it by replacing zeros with eps multiplied by a scaling factor and taking the
 // corresponding amount off the non-zero values.
-std::vector<float> SmoothDistribution(const std::vector<float>& p, const float eps = 0.0001) {
+template<typename T>
+std::vector<float> SmoothDistribution(const std::vector<T>& p, const float eps = 0.0001) {
   std::vector<size_t> is_zeros(p.size());
   std::vector<size_t> is_nonzeros(p.size());
   {
@@ -83,10 +84,10 @@ std::vector<float> SmoothDistribution(const std::vector<float>& p, const float e
     return std::vector<float>();
   }
   float eps1 = eps * static_cast<float>(n_zeros) / static_cast<float>(n_nonzeros);
-  if (eps1 >= 1.0) return std::vector<float>();
-  auto ret = p;
+  std::vector<float> ret(p.size());
   for (size_t i = 0; i < p.size(); i++) {
-    ret[i] += eps * is_zeros[i] - eps1 * is_nonzeros[i];
+    ret[i] = p[i] + eps * is_zeros[i] - eps1 * is_nonzeros[i];
+    if (ret[i] < 0) return std::vector<float>();
   }
   return ret;
 }
@@ -125,85 +126,142 @@ static inline void print_vec(std::string title, std::vector<T> vec) {
 void EntropyCalibrate(const CalibrateParam& param, const TBlob& data, const TBlob& calib_min,
                       const TBlob& calib_max) {
   auto in_ptr = data.dptr<float>();
-  const int num_bins = 8001;
-  int num_quantized_bins = 255;
+
   float data_min, data_max;
   GetMinMax(data, &data_min, &data_max);
   const float th = std::max(std::abs(data_min), std::abs(data_max));
-
-  // Move negative bins to positive bins to fit uint8 range.
+  bool is_int = true;
   if (data_min >= 0 && param.quantized_dtype != QuantizeOutType::kInt8) {
-    num_quantized_bins = num_quantized_bins * 2 + 1;
+    is_int = false;
   }
+  const float search_begin = th / 3;
+  const int ref_preci_ratio = 4;
+  const int search_count = 128;
+  std::vector<float> thresholds(search_count, 0.f);
+  std::vector<float> divergence(search_count, 0.f);
+  if (is_int) {
+    const int num_quantized_bins = 255;
+    const float search_step = (th - search_begin) / search_count;
+    #pragma omp parallel for num_threads(engine::OpenMP::Get()->GetRecommendedOMPThreadCount())
+    for (index_t i = 0; i < search_count; i++) {
+      const float threshold = search_begin + i * search_step;
+      thresholds[i] = threshold;
+      const float quantized_step = threshold * 2 / num_quantized_bins;
+      const float step = quantized_step / ref_preci_ratio;
+      const float new_th = std::ceil(th / quantized_step) * quantized_step;
+      const int num_bins = new_th * 2 / step;
+      std::vector<size_t> hist(num_bins, 0);
+      for (index_t j = 0; j < static_cast<index_t>(data.Size()); j++) {
+        const int bin_idx = (th + in_ptr[j]) / step;
+        if (bin_idx >= num_bins)
+          hist.back()++;
+        else
+          hist[bin_idx]++;
+      }
+      const int p_bin_idx_start = (num_bins - num_quantized_bins * ref_preci_ratio) / 2;
+      const int p_bin_idx_stop = (num_bins + num_quantized_bins * ref_preci_ratio) / 2;
 
-  std::vector<size_t> hist(num_bins, 0);
-  std::vector<float> hist_edges(num_bins + 1, 0);
-  float step = th * 2 / num_bins;
-  // Create histogram for data
-  for (index_t i = 0; i < num_bins + 1; i++) {
-    hist_edges.at(i) = step * i - th;
-  }
-  for (index_t i = 0; i < static_cast<index_t>(data.Size()); i++) {
-    const int bin_idx = (th + in_ptr[i]) / step;
-    if (bin_idx >= num_bins)
-      hist.back()++;
-    else
-      hist.at(bin_idx)++;
-  }
+      std::vector<size_t> sliced_nd_hist(hist.begin() + p_bin_idx_start,
+                                         hist.begin() + p_bin_idx_stop);
+      CHECK_EQ(sliced_nd_hist.size(), num_quantized_bins * ref_preci_ratio);
+      sliced_nd_hist[0] =
+          std::accumulate(hist.begin(), hist.begin() + p_bin_idx_start, sliced_nd_hist[0]);
+      sliced_nd_hist.back() =
+          std::accumulate(hist.begin() + p_bin_idx_stop, hist.end(), sliced_nd_hist.back());
 
-  const int zero_bin_idx = num_bins / 2;
-  const int num_half_quantized_bins = num_quantized_bins / 2;
-  std::vector<float> thresholds(num_bins / 2 + 1 - num_quantized_bins / 2, 0.f);
-  std::vector<float> divergence(thresholds.size(), 0.f);
-  #pragma omp parallel for num_threads(engine::OpenMP::Get()->GetRecommendedOMPThreadCount())
-  for (index_t i = num_quantized_bins / 2; i < num_bins / 2 + 1; i++) {
-    const int p_bin_idx_start = zero_bin_idx - i;
-    const int p_bin_idx_stop = zero_bin_idx + i + 1;
-    thresholds[i - num_half_quantized_bins] = hist_edges[p_bin_idx_stop];
-    std::vector<size_t> sliced_nd_hist(hist.begin() + p_bin_idx_start,
-                                       hist.begin() + p_bin_idx_stop);
-    std::vector<float> p(sliced_nd_hist.begin(), sliced_nd_hist.end());
-    p[0] = std::accumulate(hist.begin(), hist.begin() + p_bin_idx_start, p[0]);
-    p.back() =
-        std::accumulate(hist.begin() + p_bin_idx_stop, hist.end(), p.back());
-    // calculate how many bins should be merged to generate quantized distribution q
-    const float num_merged_bins = sliced_nd_hist.size() / num_quantized_bins;
-    // merge hist into num_quantized_bins bins
-    std::vector<float> quantized_bins(num_quantized_bins, 0);
-    for (index_t j = 0; j < num_quantized_bins; j++) {
-      const int start = std::round(j * num_merged_bins);
-      const int stop = std::round((j + 1) * num_merged_bins);
-      quantized_bins[j] =
-          std::accumulate(sliced_nd_hist.begin() + start, sliced_nd_hist.begin() + stop, 0);
-    }
-    quantized_bins.back() += std::accumulate(
-        sliced_nd_hist.begin() + static_cast<int>(std::round(num_quantized_bins * num_merged_bins)),
-        sliced_nd_hist.end(), 0);
-    // expand quantized_bins into p.size bins
-    std::vector<float> q(sliced_nd_hist.size(), 0);
-    for (index_t j = 0; j < num_quantized_bins; j++) {
-      const int start = std::round(j * num_merged_bins);
-      const int stop = std::round((j + 1) * num_merged_bins);
-      int norm = std::count_if(sliced_nd_hist.begin() + start, sliced_nd_hist.begin() + stop,
-                               [](size_t i) { return i != 0; });
-      if (norm) {
-        for (index_t k = start; k < stop; k++) {
-          if (p[k]) q[k] = quantized_bins[j] / norm;
+      std::vector<float> quantized_bins(num_quantized_bins, 0);
+      for (index_t j = 0; j < num_quantized_bins; j++) {
+        const int start = j * ref_preci_ratio;
+        const int stop = (j + 1) * ref_preci_ratio;
+        quantized_bins[j] =
+            std::accumulate(sliced_nd_hist.begin() + start, sliced_nd_hist.begin() + stop, 0);
+      }
+
+      // expand quantized_bins into num_bins
+      std::vector<float> q(num_bins, 0);
+      for (index_t j = 0; j < num_quantized_bins; j++) {
+        const int start = j * ref_preci_ratio;
+        const int stop = (j + 1) * ref_preci_ratio;
+        for (index_t k = p_bin_idx_start + start; k < p_bin_idx_start + stop; k++) {
+          q[k] = quantized_bins[j] / ref_preci_ratio;
         }
       }
+      q = SmoothDistribution(q);
+      std::vector<float> p = SmoothDistribution(hist);
+      if (!q.size()) {
+        divergence[i] = std::numeric_limits<float>::infinity();
+      } else {
+        divergence[i] = ComputeEntropy(p, q);
+      }
+      // LOG(INFO) << "i: " << i << "  divergence: " << divergence[i];
     }
-    // print_vec("p:", p);
-    // print_vec("q:", q);
-    p = SmoothDistribution(p);
-    q = SmoothDistribution(q);
+  } else {
+    const float num_quantized_bins = 255.5;
+    const float search_step = (th - search_begin) / search_count;
+    const int p_bin_idx_stop = num_quantized_bins * ref_preci_ratio;
+    #pragma omp parallel for num_threads(engine::OpenMP::Get()->GetRecommendedOMPThreadCount())
+    for (index_t i = 0; i < search_count; i++) {
+      const float threshold = search_begin + i * search_step;
+      thresholds[i] = threshold;
+      const float quantized_step = threshold / num_quantized_bins;
+      const float new_th = std::ceil(th / quantized_step) * quantized_step;
+      const float step = quantized_step / ref_preci_ratio;
+      const int num_bins = new_th / step;
+      std::vector<size_t> hist(num_bins, 0);
+      for (index_t j = 0; j < static_cast<index_t>(data.Size()); j++) {
+        const int bin_idx = std::round(in_ptr[j] / step);
+        if (bin_idx >= num_bins)
+          hist.back()++;
+        else
+          hist[bin_idx]++;
+      }
+      CHECK(p_bin_idx_stop <= hist.size());
+      std::vector<size_t> sliced_nd_hist(hist.begin(), hist.begin() + p_bin_idx_stop);
+      sliced_nd_hist.back() =
+          std::accumulate(hist.begin() + p_bin_idx_stop, hist.end(), sliced_nd_hist.back());
 
-    if (!q.size()) {
-      divergence[i - num_half_quantized_bins] = std::numeric_limits<float>::infinity();
-    } else {
-      divergence[i - num_half_quantized_bins] = ComputeEntropy(p, q);
+      std::vector<float> quantized_bins(std::ceil(num_quantized_bins), 0);
+      for (index_t j = 0; j < std::ceil(num_quantized_bins); j++) {
+        int start, stop;
+        if (j == 0) {
+          start = 0;
+          stop = ref_preci_ratio / 2;
+        } else {
+          start = ref_preci_ratio / 2 + (j - 1) * ref_preci_ratio;
+          stop = ref_preci_ratio / 2 + j * ref_preci_ratio;
+        }
+        CHECK(stop <= sliced_nd_hist.size());
+        quantized_bins[j] =
+            std::accumulate(sliced_nd_hist.begin() + start, sliced_nd_hist.begin() + stop, 0);
+      }
+      // expand quantized_bins into num_bins
+      std::vector<float> q(num_bins, 0);
+      for (index_t j = 0; j < num_quantized_bins; j++) {
+        int start, stop, ratio;
+        if (j == 0) {
+          start = 0;
+          stop = ref_preci_ratio / 2;
+          ratio = ref_preci_ratio / 2;
+        } else {
+          start = ref_preci_ratio / 2 + (j - 1) * ref_preci_ratio;
+          stop = ref_preci_ratio / 2 + j * ref_preci_ratio;
+          ratio = ref_preci_ratio;
+        }
+        CHECK(stop <= q.size());
+        for (index_t k = start; k < stop; k++) {
+          q[k] = quantized_bins[j] / ratio;
+        }
+      }
+
+      q = SmoothDistribution(q);
+      std::vector<float> p = SmoothDistribution(hist);
+      if (!q.size()) {
+        divergence[i] = std::numeric_limits<float>::infinity();
+      } else {
+        divergence[i] = ComputeEntropy(p, q);
+      }
+      // LOG(INFO) << "i: " << i << "  divergence: " << divergence[i];
     }
-    //  LOG(INFO) << "i: " << i
-    //            << "  divergence: " << divergence[i - num_half_quantized_bins];
   }
 
   size_t min_divergence_idx = 0;
@@ -220,6 +278,8 @@ void EntropyCalibrate(const CalibrateParam& param, const TBlob& data, const TBlo
     *calib_min.dptr<float>() = -thresholds[min_divergence_idx];
   }
   *calib_max.dptr<float>() = thresholds[min_divergence_idx];
+  LOG(INFO) << "min: " << data_min << " max: " << data_max
+            << " th: " << thresholds[min_divergence_idx] << " divergence: " << min_divergence;
 }
 
 void CalibrateComputeCPU(const nnvm::NodeAttrs& attrs, const OpContext& ctx,
