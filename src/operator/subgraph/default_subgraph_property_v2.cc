@@ -60,8 +60,8 @@ class DefaultSubgraphProperty: public SubgraphProperty {
  public:
   static SubgraphPropertyPtr Create() { return std::make_shared<DefaultSubgraphProperty>(); }
   nnvm::NodePtr CreateSubgraphNode(const nnvm::Symbol &sym,
-                                           const SubgraphSelectorPtr& subgraph_selector,
-                                           const int subgraph_id = 0) const override {
+                                   const SubgraphSelectorPtr &subgraph_selector,
+                                   const int subgraph_id = 0) const override {
     nnvm::NodePtr n = nnvm::Node::Create();
     n->attrs.op = Op::Get("_CachedOp");
     n->attrs.name = "_CachedOp" + std::to_string(subgraph_id);

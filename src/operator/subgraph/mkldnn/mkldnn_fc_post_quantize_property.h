@@ -38,7 +38,16 @@
 namespace mxnet {
 namespace op {
 
-#define QUANTIZED_FC_NAME "_sg_mkldnn_fully_connected"
+static bool IsQuantizedFC(const nnvm::Op *op) {
+  const static std::vector<const nnvm::Op *> quantized_fc_name = {
+      Op::Get("_sg_mkldnn_fully_connected"), Op::Get("_sg_mkldnn_fat_fully_connected")};
+  for (const auto &qfc : quantized_fc_name) {
+    if (op == qfc) {
+      return true;
+    }
+  }
+  return false;
+}
 
 class SgMKLDNNFCPostQuantizeSelector : public SubgraphSelector {
  public:
@@ -63,7 +72,7 @@ class SgMKLDNNFCPostQuantizeSelector : public SubgraphSelector {
         disable_float_output(dis_float_output) {}
 
   bool Select(const nnvm::Node &n) override {
-    if ((!disable_all) && n.op() == Op::Get(QUANTIZED_FC_NAME)) {
+    if ((!disable_all) && IsQuantizedFC(n.op())) {
       status = disable_all ? kSuccess : kStart;
       matched_list.clear();
       matched_list.push_back(&n);
@@ -164,7 +173,7 @@ class SgMKLDNNFCPostQuantizeProperty : public SubgraphProperty {
 
     DFSVisit(sym.outputs, [&](const nnvm::NodePtr &node) {
       if (node->is_variable()) return;
-      if (node->op() == Op::Get(QUANTIZED_FC_NAME)) {
+      if (IsQuantizedFC(node->op())) {
         fc_node = node;
       } else if (node->op() == Op::Get("_contrib_requantize")) {
         requantize_node = node;

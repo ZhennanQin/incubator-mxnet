@@ -20,6 +20,7 @@
 #if MXNET_USE_MKLDNN == 1
 
 #include "mkldnn_conv_property.h"
+#include "mkldnn_fat_fc_property.h"
 #include "mkldnn_fc_property.h"
 #include "mkldnn_post_quantize_property.h"
 #include "mkldnn_fc_post_quantize_property.h"
@@ -33,6 +34,8 @@ MXNET_REGISTER_SUBGRAPH_BACKEND(MKLDNN)
 .set_attr("context", Context::CPU());
 
 MXNET_REGISTER_SUBGRAPH_PROPERTY(MKLDNN, SgMKLDNNConvProperty);
+
+MXNET_REGISTER_SUBGRAPH_PROPERTY(MKLDNN, SgMKLDNNFatFCProperty);
 
 MXNET_REGISTER_SUBGRAPH_PROPERTY(MKLDNN, SgMKLDNNFCProperty);
 

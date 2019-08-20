@@ -1155,8 +1155,9 @@ void GraphExecutor::InitDataEntryMemory(std::vector<NDArray>* shared_pool) {
     if (storage_type == kDefaultStorage) {
       if (!shape_is_known(vshape[i])) {
         data_entry_[i] = NDArray(data_context[i], vdtype[i]);
+      } else if (storage_id < 0) {
+        data_entry_[i] = NDArray(vshape[i], data_context[i], vdtype[i]);
       } else {
-        CHECK_GE(storage_id, 0) << "Do not support runtime shape op yet";
         const NDArray& src = data_pool_.at(storage_id);
         data_entry_[i] = src.AsArray(vshape[i], vdtype[i]);
       }

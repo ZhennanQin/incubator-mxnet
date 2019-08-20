@@ -699,6 +699,11 @@ class NDArray {
     ptr_->CheckAndAllocAuxData(i, aux_shape);
   }
 
+  inline void AssignDataPtr(void* ptr, size_t size) const {
+    CHECK_EQ(storage_type(), kDefaultStorage);
+    ptr_->AssignDataPtr(ptr, size);
+  }
+
 #if MXNET_USE_MKLDNN == 1
   /*
    * Create NDArray from mkldnn memory.
@@ -1045,6 +1050,14 @@ class NDArray {
     // if data is already allocated, try reuse the storage. Otherwise, free the current one
     // and allocate new storage
     void CheckAndAllocData(const mxnet::TShape &shape, int dtype);
+
+    inline void AssignDataPtr(void* ptr, size_t size) {
+      shandle.dptr = ptr;
+      shandle.size = size;
+      mkl_mem_ = nullptr;
+      delay_alloc = false;
+      static_data = true;
+    }
 
 #if MXNET_USE_MKLDNN == 1
     // Have MKL memory reference to the data in the default storage

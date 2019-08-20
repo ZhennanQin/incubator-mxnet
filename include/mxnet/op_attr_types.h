@@ -319,6 +319,8 @@ using FNeedRequantize = std::function<bool (const NodeAttrs& attrs)>;
 using FAvoidQuantizeInput = std::function<bool (const NodeAttrs& attrs,
                                                 size_t index)>;
 
+using FDynamicOutput = std::function<std::vector<bool>(const NodeAttrs& attrs)>;
+
 }  // namespace mxnet
 
 #endif  // MXNET_OP_ATTR_TYPES_H_

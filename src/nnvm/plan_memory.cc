@@ -198,6 +198,7 @@ size_t AllocMemory(const Graph& ret, const IndexedGraph& idx,
                    GraphAllocator* allocator) {
   static auto& finplace_option = Op::GetAttr<FInplaceOption>("FInplaceOption");
   static auto& finplace_identity = Op::GetAttr<FInplaceIdentity>("FInplaceIdentity");
+  static auto& fdynamic_output = Op::GetAttr<FDynamicOutput>("FDynamicOutput");
   static auto& fignore_inputs = Op::GetAttr<FIgnoreInputs>("FIgnoreInputs");
 
   // Get reference
@@ -218,6 +219,18 @@ size_t AllocMemory(const Graph& ret, const IndexedGraph& idx,
   for (uint32_t nid = node_range.first; nid < node_range.second; ++nid) {
     const auto& inode = idx[nid];
     if (inode.source->is_variable()) continue;
+    // check dynamic option
+    if (fdynamic_output.count(inode.source->op()) != 0) {
+      std::vector<bool> dynamic = fdynamic_output[inode.source->op()](inode.source->attrs);
+      for (size_t dy = 0; dy < dynamic.size(); dy++) {
+        if (dynamic[dy]) {
+          uint32_t eid_out = idx.entry_id(nid, dy);
+          if (storage[eid_out] == GraphAllocator::kBadStorageID) {
+            storage[eid_out] = GraphAllocator::kDynamicStorageID;
+          }
+        }
+      }
+    }
     // check inplace option
     if (finplace_option.count(inode.source->op()) != 0) {
       auto inplace_pairs = finplace_option[inode.source->op()](inode.source->attrs);

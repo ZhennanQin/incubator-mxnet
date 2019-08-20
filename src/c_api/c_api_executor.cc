@@ -48,10 +48,11 @@ int MXExecutorFree(ExecutorHandle handle) {
 }
 
 int MXExecutorForward(ExecutorHandle handle, int is_train) {
-  API_BEGIN();
+  // API_BEGIN();
   Executor *exec = static_cast<Executor*>(handle);
   exec->Forward(is_train != 0);
-  API_END();
+  return 0;
+  //API_END();
 }
 
 int MXExecutorBackward(ExecutorHandle handle,
