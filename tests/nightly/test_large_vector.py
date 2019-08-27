@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -17,24 +15,24 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# This script builds the static library of openblas that can be used as dependency of mxnet.
-set +e # This script throws an error but otherwise works
-set -x
-OPENBLAS_VERSION=0.3.5
-if [[ ! -e $DEPS_PATH/lib/libopenblas.a ]]; then
-    # download and build openblas
-    >&2 echo "Building openblas..."
+import numpy as np
+import mxnet as mx
 
-    download \
-        https://github.com/xianyi/OpenBLAS/archive/v${OPENBLAS_VERSION}.zip \
-        ${DEPS_PATH}/openblas.zip
-    unzip -q $DEPS_PATH/openblas.zip -d $DEPS_PATH
-    pushd .
-    cd $DEPS_PATH/OpenBLAS-$OPENBLAS_VERSION
+from mxnet.test_utils import rand_ndarray, assert_almost_equal, rand_coord_2d
+from mxnet import gluon, nd
+from tests.python.unittest.common import with_seed
 
-    $MAKE DYNAMIC_ARCH=1 NO_SHARED=1 USE_OPENMP=1
-    $MAKE PREFIX=$DEPS_PATH install
-    popd
-    ln -s libopenblas.a $DEPS_PATH/lib/libcblas.a
-    ln -s libopenblas.a $DEPS_PATH/lib/liblapack.a
-fi
+# dimension constants
+LARGE_X = 5000000000
+MEDIUM_X = 1000000000
+
+
+def test_slice():
+    a = nd.ones(LARGE_X)
+    res = nd.slice(a, begin=(LARGE_X - MEDIUM_X), end=LARGE_X)
+    assert res.shape[0] == MEDIUM_X
+
+
+if __name__ == '__main__':
+    import nose
+    nose.runmodule()
