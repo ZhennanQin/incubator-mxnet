@@ -64,11 +64,12 @@ class SgMKLDNNFatFCOp {
   bool initialized_;
   nnvm::Symbol subgraph_sym_;
   MKLDNNFCFatFullParam full_param_;
-  std::shared_ptr<mkldnn::inner_product_forward> fwd_;
+  std::vector<std::shared_ptr<mkldnn::inner_product_forward>> fwd_;
+  std::vector<std::shared_ptr<mkldnn::inner_product_forward::primitive_desc>> fc_pd_;
   std::shared_ptr<mkldnn::memory> cached_data_;
-  std::shared_ptr<mkldnn::memory> cached_weight_;
-  std::shared_ptr<mkldnn::memory> cached_bias_;
-  std::shared_ptr<mkldnn::memory> cached_output_;
+  std::vector<std::shared_ptr<mkldnn::memory>> cached_weight_;
+  std::vector<std::shared_ptr<mkldnn::memory>> cached_bias_;
+  std::vector<std::shared_ptr<mkldnn::memory>> cached_output_;
   float cached_min_data_;
   float cached_max_data_;
   float cached_min_weight_;
@@ -87,87 +88,76 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
   const auto num_fc = full_param_.default_params.size();
   bool has_bias = !default_param.no_bias;
   size_t base_num_inputs = has_bias ? 3 : 2;
-  CHECK_EQ(default_param.flatten, false) << "Doesn't support flatten = true for now.";
-
-
+  const auto &data = in_data[fullc::kData];
   if (!initialized_) {
     initialized_ = true;
-    const auto dshape = in_data[fullc::kData].shape();
-    CHECK_EQ(dshape.ndim(), 2) << "only support data ndim = 2.";
-    index_t num_batch = dshape[0];
-    CHECK_EQ(num_batch, 1) << "only support num_batch = 1.";
-    mkldnn::memory::dims out_dims(2);
-    out_dims[0] = num_batch;
-    out_dims[1] = 0;
-    // Concat weight
-    {
-      std::vector<mkldnn::memory::primitive_desc> weight_md;
-      std::vector<mkldnn::primitive::at> weight_mem;
-      weight_md.reserve(num_fc);
-      weight_mem.reserve(num_fc);
-      for (size_t i = 0; i < num_fc; i++) {
-        const auto& weight = in_data[i * base_num_inputs + fullc::kWeight];
-        const mkldnn::memory *mem = weight.GetMKLDNNData();
-        const mkldnn::memory::primitive_desc weight_pd = mem->get_primitive_desc();
-        weight_md.push_back(weight_pd);
-        weight_mem.push_back(*mem);
-        out_dims[1] += weight.shape()[0];
+    fwd_.resize(num_fc);
+    fc_pd_.resize(num_fc);
+    cached_weight_.resize(num_fc);
+    cached_bias_.resize(num_fc);
+    cached_output_.resize(num_fc);
+    cached_data_ =
+        std::make_shared<mkldnn::memory>(data.GetMKLDNNData()->get_primitive_desc(), nullptr);
+    for (size_t i = 0; i < num_fc; i++) {
+      const auto& weight = in_data[i * base_num_inputs + fullc::kWeight];
+      const auto &out = out_data[i + fullc::kOut];
+      mkldnn::memory::desc out_md = GetMemDesc(out);
+      const mxnet::TShape ishape = data.shape();
+      if (ishape.ndim() != 2) {
+        const mxnet::TShape oshape = out.shape();
+        if (!default_param.flatten) {
+          mkldnn::memory::dims out_dims{static_cast<int>(oshape.ProdShape(0, oshape.ndim() - 1)),
+                                        static_cast<int>(oshape[ishape.ndim() - 1])};
+          out_md = mkldnn::memory::desc(out_dims, get_mkldnn_type(out.dtype()),
+                                        mkldnn::memory::format::any);
+        } else {
+          mkldnn::memory::dims out_dims{static_cast<int>(oshape[0]),
+                                        static_cast<int>(oshape.ProdShape(1, oshape.ndim()))};
+          out_md = mkldnn::memory::desc(out_dims, get_mkldnn_type(out.dtype()),
+                                        mkldnn::memory::format::any);
+        }
       }
-      const mkldnn::concat::primitive_desc concat_pd(0, weight_md);
-      cached_weight_ = std::make_shared<mkldnn::memory>(concat_pd.dst_primitive_desc());
-      MKLDNNStream::Get()->RegisterPrim(mkldnn::concat(concat_pd, weight_mem, *cached_weight_));
-      MKLDNNStream::Get()->Submit();
-    }
-
-    // Concat bias
-    if (has_bias) {
-      std::vector<mkldnn::memory::primitive_desc> bias_md;
-      std::vector<mkldnn::primitive::at> bias_mem;
-      bias_md.reserve(num_fc);
-      bias_mem.reserve(num_fc);
-      for (size_t i = 0; i < num_fc; i++) {
-        const mkldnn::memory *mem = in_data[i * base_num_inputs + fullc::kBias].GetMKLDNNData();
-        mkldnn::memory::primitive_desc bias_pd = mem->get_primitive_desc();
-        bias_md.push_back(bias_pd);
-        bias_mem.push_back(*mem);
+      MKLDNNFCFullParam param;
+      param.default_param = full_param_.default_params[i];
+      param.mkldnn_param = mkldnn_param;
+      param.output_scales = full_param_.output_scales;
+      param.requantize_scales = full_param_.requantize_scales;
+      fc_pd_[i] = std::make_shared<mkldnn::inner_product_forward::primitive_desc>(GetFCFwdImpl(
+          param, false, data, weight,
+          (has_bias ? &in_data[i * base_num_inputs + fullc::kBias] : nullptr), out_md));
+      cached_output_[i] =
+          std::make_shared<mkldnn::memory>(fc_pd_[i]->dst_primitive_desc(), nullptr);
+      cached_weight_[i] =
+          std::make_shared<mkldnn::memory>(fc_pd_[i]->weights_primitive_desc(), nullptr);
+      if (has_bias) {
+        cached_bias_[i] = std::make_shared<mkldnn::memory>(fc_pd_[i]->bias_primitive_desc(), nullptr);
+        fwd_[i] = std::make_shared<mkldnn::inner_product_forward>(
+            *fc_pd_[i], mkldnn::primitive::at(*cached_data_),
+            mkldnn::primitive::at(*cached_weight_[i]), mkldnn::primitive::at(*cached_bias_[i]),
+            *cached_output_[i]);
+      } else {
+        fwd_[i] = std::make_shared<mkldnn::inner_product_forward>(
+            *fc_pd_[i], mkldnn::primitive::at(*cached_data_),
+            mkldnn::primitive::at(*cached_weight_[i]), *cached_output_[i]);
       }
-      const mkldnn::concat::primitive_desc concat_pd(0, bias_md);
-      cached_bias_ = std::make_shared<mkldnn::memory>(concat_pd.dst_primitive_desc());
-      MKLDNNStream::Get()->RegisterPrim(mkldnn::concat(concat_pd, bias_mem, *cached_bias_));
-      MKLDNNStream::Get()->Submit();
-    }
-    MKLDNNFCFullParam param;
-    param.default_param = default_param;
-    param.mkldnn_param = mkldnn_param;
-    param.output_scales = full_param_.output_scales;
-    param.requantize_scales = full_param_.requantize_scales;
-    NDArray weight = NDArray(cached_weight_);
-    NDArray bias = has_bias ? NDArray(cached_bias_) : NDArray();
-    mkldnn::memory::desc out_md(out_dims, get_mkldnn_type(weight.dtype()),
-                                mkldnn::memory::format::any);
-    mkldnn::inner_product_forward::primitive_desc fc_pd = GetFCFwdImpl(
-        param, false, in_data[fullc::kData], weight, has_bias ? &bias : nullptr, out_md);
-    cached_data_ = std::make_shared<mkldnn::memory>(
-        out_data[fullc::kData].GetMKLDNNData()->get_primitive_desc(), nullptr);
-    cached_output_ =  std::make_shared<mkldnn::memory>(fc_pd.dst_primitive_desc());
-    if (has_bias) {
-      fwd_ = std::make_shared<mkldnn::inner_product_forward>(
-          fc_pd, mkldnn::primitive::at(*cached_data_), mkldnn::primitive::at(*cached_weight_),
-          mkldnn::primitive::at(*cached_bias_), *cached_output_);
-    } else {
-      fwd_ = std::make_shared<mkldnn::inner_product_forward>(
-          fc_pd, mkldnn::primitive::at(*cached_data_), mkldnn::primitive::at(*cached_weight_),
-          *cached_output_);
     }
   }
-  cached_data_->set_data_handle(in_data[fullc::kData].GetMKLDNNData()->get_data_handle());
-  MKLDNNStream::Get()->RegisterPrim(*fwd_);
+  cached_data_->set_data_handle(data.GetMKLDNNData()->get_data_handle());
   MKLDNNStream::Get()->Submit();
-  char *out_ptr = static_cast<char*>(cached_output_->get_data_handle());
-  for (size_t i = 0; i < out_data.size(); i++) {
-    size_t size = out_data[i].shape().Size() * mshadow::mshadow_sizeof(out_data[i].dtype());
-    out_data[i].AssignDataPtr(out_ptr, size);
-    out_ptr += size;
+#pragma omp parallel for num_threads(engine::OpenMP::Get()->GetRecommendedOMPThreadCount())
+  for (int i = 0; i < static_cast<int>(num_fc); i++) {
+    const auto& weight = in_data[i * base_num_inputs + fullc::kWeight];
+    cached_weight_[i]->set_data_handle(weight.GetMKLDNNData()->get_data_handle());
+    if (has_bias) {
+      const auto& bias = in_data[i * base_num_inputs + fullc::kBias];
+      cached_bias_[i]->set_data_handle(bias.GetMKLDNNData()->get_data_handle());
+    }
+    auto out_mem = CreateMKLDNNMem(out_data[i + fullc::kOut], fc_pd_[i]->dst_primitive_desc(),
+                                   req[i + fullc::kOut], &data);
+    cached_output_[i]->set_data_handle(out_mem.second->get_data_handle());
+    MKLDNNStream::Get()->RegisterPrim(*fwd_[i]);
+    CommitOutput(out_data[i + fullc::kOut], out_mem);
+    MKLDNNStream::Get()->Submit();
   }
 }
 
@@ -255,7 +245,7 @@ static bool SgMKLDNNFatFCInferType(const nnvm::NodeAttrs &attrs, std::vector<int
     } else {
       if (full_param.mkldnn_param.min_calib_range.has_value() &&
           full_param.mkldnn_param.max_calib_range.has_value()) {
-        if (full_param.mkldnn_param.with_relu) {
+        if (full_param.mkldnn_param.with_eltwise) {
           for (size_t i = 0; i < num_fc; ++i) {
             TYPE_ASSIGN_CHECK(*out_types, i, mshadow::kUint8);
           }
@@ -375,10 +365,10 @@ NNVM_REGISTER_OP(_sg_mkldnn_fat_fully_connected)
 .set_attr<FResourceRequest>("FResourceRequest", [](const NodeAttrs& n) {
   return std::vector<ResourceRequest>{ResourceRequest::kTempSpace};
 })
-.set_attr<FDynamicOutput>("FDynamicOutput", [](const NodeAttrs& n) {
-  const auto num_outputs = SgMKLDNNFatFCNumOutputs(n);
-  return std::vector<bool>(num_outputs, true);
-})
+// .set_attr<FDynamicOutput>("FDynamicOutput", [](const NodeAttrs& n) {
+//   const auto num_outputs = SgMKLDNNFatFCNumOutputs(n);
+//   return std::vector<bool>(num_outputs, true);
+// })
 .set_attr<FQuantizedOp>("FQuantizedOp", SgMKLDNNFatFCQuantizedOp)
 .set_attr<FNeedRequantize>("FNeedRequantize", [](const NodeAttrs& attrs) { return true; });
 
