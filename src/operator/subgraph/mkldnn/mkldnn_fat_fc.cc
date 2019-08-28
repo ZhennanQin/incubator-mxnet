@@ -88,7 +88,7 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
   const auto num_fc = full_param_.default_params.size();
   bool has_bias = !default_param.no_bias;
   size_t base_num_inputs = has_bias ? 3 : 2;
-  const auto &data = in_data[fullc::kData];
+  auto data = in_data[fullc::kData];
   if (!initialized_) {
     initialized_ = true;
     fwd_.resize(num_fc);
@@ -96,13 +96,23 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
     cached_weight_.resize(num_fc);
     cached_bias_.resize(num_fc);
     cached_output_.resize(num_fc);
+    const mxnet::TShape ishape = data.shape();
+    if (ishape.ndim() != 2) {
+      if (!default_param.flatten) {
+        data = NDArray(Shape2(ishape.ProdShape(0, ishape.ndim() - 1), ishape[ishape.ndim() - 1]),
+                       data.ctx(), true, data.dtype());
+      } else {
+        data = NDArray(Shape2(ishape[0], ishape.ProdShape(1, ishape.ndim())), data.ctx(), true,
+                       data.dtype());
+      }
+    }
     cached_data_ =
         std::make_shared<mkldnn::memory>(data.GetMKLDNNData()->get_primitive_desc(), nullptr);
     for (size_t i = 0; i < num_fc; i++) {
       const auto& weight = in_data[i * base_num_inputs + fullc::kWeight];
       const auto &out = out_data[i + fullc::kOut];
       mkldnn::memory::desc out_md = GetMemDesc(out);
-      const mxnet::TShape ishape = data.shape();
+
       if (ishape.ndim() != 2) {
         const mxnet::TShape oshape = out.shape();
         if (!default_param.flatten) {
@@ -142,10 +152,12 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
       }
     }
   }
+  data = in_data[fullc::kData];
   cached_data_->set_data_handle(data.GetMKLDNNData()->get_data_handle());
-  MKLDNNStream::Get()->Submit();
-#pragma omp parallel for num_threads(engine::OpenMP::Get()->GetRecommendedOMPThreadCount())
+  omp_set_max_active_levels(2);
+#pragma omp parallel for num_threads(3)
   for (int i = 0; i < static_cast<int>(num_fc); i++) {
+
     const auto& weight = in_data[i * base_num_inputs + fullc::kWeight];
     cached_weight_[i]->set_data_handle(weight.GetMKLDNNData()->get_data_handle());
     if (has_bias) {
