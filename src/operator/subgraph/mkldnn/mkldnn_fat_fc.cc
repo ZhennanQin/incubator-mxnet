@@ -91,6 +91,8 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
   auto data = in_data[fullc::kData];
   if (!initialized_) {
     initialized_ = true;
+    omp_set_max_active_levels(10);
+    omp_set_nested(1);
     fwd_.resize(num_fc);
     fc_pd_.resize(num_fc);
     cached_weight_.resize(num_fc);
@@ -154,10 +156,10 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
   }
   data = in_data[fullc::kData];
   cached_data_->set_data_handle(data.GetMKLDNNData()->get_data_handle());
-  omp_set_max_active_levels(2);
-#pragma omp parallel for num_threads(3)
+  int num_omp_threads = engine::OpenMP::Get()->GetRecommendedOMPThreadCount();
+#pragma omp parallel for num_threads(num_fc)
   for (int i = 0; i < static_cast<int>(num_fc); i++) {
-
+    omp_set_num_threads(num_omp_threads / num_fc);
     const auto& weight = in_data[i * base_num_inputs + fullc::kWeight];
     cached_weight_[i]->set_data_handle(weight.GetMKLDNNData()->get_data_handle());
     if (has_bias) {
@@ -171,6 +173,7 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
     CommitOutput(out_data[i + fullc::kOut], out_mem);
     MKLDNNStream::Get()->Submit();
   }
+  omp_set_num_threads(num_omp_threads);
 }
 
 static void SgMKLDNNFatFCParamParser(nnvm::NodeAttrs *attrs) {
