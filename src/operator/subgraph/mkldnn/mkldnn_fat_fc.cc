@@ -89,13 +89,20 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
   size_t base_num_inputs = has_bias ? 3 : 2;
   CHECK_EQ(default_param.flatten, false) << "Doesn't support flatten = true for now.";
 
-
   if (!initialized_) {
     initialized_ = true;
-    const auto dshape = in_data[fullc::kData].shape();
-    CHECK_EQ(dshape.ndim(), 2) << "only support data ndim = 2.";
-    index_t num_batch = dshape[0];
-    CHECK_EQ(num_batch, 1) << "only support num_batch = 1.";
+    auto data = in_data[fullc::kData];
+    const auto ishape = data.shape();
+    if (ishape.ndim() != 2) {
+      if (!default_param.flatten) {
+        data = NDArray(Shape2(ishape.ProdShape(0, ishape.ndim() - 1), ishape[ishape.ndim() - 1]),
+                       data.ctx(), true, data.dtype());
+      } else {
+        data = NDArray(Shape2(ishape[0], ishape.ProdShape(1, ishape.ndim())), data.ctx(), true,
+                       data.dtype());
+      }
+    }
+    index_t num_batch = ishape[0] * ishape[1];
     mkldnn::memory::dims out_dims(2);
     out_dims[0] = num_batch;
     out_dims[1] = 0;
@@ -146,7 +153,7 @@ void SgMKLDNNFatFCOp::Forward(const OpContext &ctx, const std::vector<NDArray> &
     mkldnn::memory::desc out_md(out_dims, get_mkldnn_type(weight.dtype()),
                                 mkldnn::memory::format::any);
     mkldnn::inner_product_forward::primitive_desc fc_pd = GetFCFwdImpl(
-        param, false, in_data[fullc::kData], weight, has_bias ? &bias : nullptr, out_md);
+        param, false, data, weight, has_bias ? &bias : nullptr, out_md);
     cached_data_ = std::make_shared<mkldnn::memory>(
         out_data[fullc::kData].GetMKLDNNData()->get_primitive_desc(), nullptr);
     cached_output_ =  std::make_shared<mkldnn::memory>(fc_pd.dst_primitive_desc());
@@ -255,7 +262,7 @@ static bool SgMKLDNNFatFCInferType(const nnvm::NodeAttrs &attrs, std::vector<int
     } else {
       if (full_param.mkldnn_param.min_calib_range.has_value() &&
           full_param.mkldnn_param.max_calib_range.has_value()) {
-        if (full_param.mkldnn_param.with_relu) {
+        if (full_param.mkldnn_param.with_eltwise) {
           for (size_t i = 0; i < num_fc; ++i) {
             TYPE_ASSIGN_CHECK(*out_types, i, mshadow::kUint8);
           }
