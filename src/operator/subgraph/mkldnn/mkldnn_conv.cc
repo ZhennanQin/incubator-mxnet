@@ -415,6 +415,13 @@ void SgMKLDNNConvOperator::Forward(const OpContext &ctx,
       std::unique_ptr<dmlc::Stream> fo(dmlc::Stream::Create(cached_weight_file_path.c_str(), "w"));
       mxnet::NDArray::Save(fo.get(), data, names);
       LOG(INFO) << "Written weights to " + cached_weight_file_path;
+    } else {
+      LOG(INFO) << "print weights for s8 convolution";
+      int8_t *ptr = static_cast<int8_t *>(cached_weight_.GetMKLDNNData()->get_data_handle());
+      for (size_t i = 0; i < 10; i++) {
+        printf("%d ", ptr[i]);
+      }
+      printf("\n");
     }
   }
 
