@@ -397,6 +397,25 @@ void SgMKLDNNConvOperator::Forward(const OpContext &ctx,
                     has_bias ? cached_bias_.GetMKLDNNData() : nullptr,
                     *output.GetMKLDNNData());
     initialized_ = true;
+    MKLDNNStream::Get()->Submit();
+    if (data.dtype() == mshadow::kUint8) {
+      LOG(INFO) << "Writing cached integer weight file";
+      char cwd[200];
+      getcwd(cwd, sizeof(cwd));
+      std::string current_dir(cwd);
+      LOG(INFO) << "The current dir is : " << current_dir;
+      LOG(INFO) << "Writing qunatized cached weights to file";
+      int num_args = 1;
+      std::vector<NDArray> data(num_args);
+      std::vector<std::string> names(num_args);
+      std::string op_name = "mkldnn_conv";
+      data[0] = cached_weight_.Reorder2Default();
+      names[0] = op_name;
+      std::string cached_weight_file_path = current_dir + "/quantized-conv-weights/" + op_name;
+      std::unique_ptr<dmlc::Stream> fo(dmlc::Stream::Create(cached_weight_file_path.c_str(), "w"));
+      mxnet::NDArray::Save(fo.get(), data, names);
+      LOG(INFO) << "Written weights to " + cached_weight_file_path;
+    }
   }
 
   if (mkldnn_param.with_sum) {
