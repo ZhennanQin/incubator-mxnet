@@ -1,0 +1,76 @@
+stages:
+  - prebuild
+  - build
+  - test
+
+job mkldnn1.0_preci_prepare:
+  only:
+    refs:
+      - official
+      - merge_requests
+  except:
+    - schedules
+  tags:
+    - mxnet-mkldnn1.0-preci
+  stage: prebuild
+  script:
+    - source ~/anaconda3/bin/activate
+    - conda activate py36-mxnet-mkldnn1.0
+    - git remote | grep upstream && git remote remove upstream
+    - git remote add upstream https://github.com/apache/incubator-mxnet.git
+    - git fetch upstream
+    - git rebase upstream/master
+    - git submodule update --recursive --init
+    - which cmake
+    - export CPATH=/usr/include/openblas:$CPATH
+    - make -j USE_BLAS=openblas USE_MKLDNN=0
+    - make  clean
+    - make -j USE_BLAS=mkl USE_MKLDNN=0 USE_INTEL_PATH=/home/gitlab-runner/intel USE_OPENCV=1
+    - make clean
+    - make -j USE_BLAS=openblas USE_MKLDNN=1
+    - make clean
+
+job mkldnn1.0_preci_build:
+  only:
+    refs:
+      - official
+      - merge_requests
+  except:
+    - schedules
+  tags:
+    - mxnet-mkldnn1.0-preci
+  stage: build
+  script:
+    - echo mxnet-mkldnn 1.0 preci build
+    - source ~/anaconda3/bin/activate
+    - conda activate py36-mxnet-mkldnn1.0
+    - pip uninstall mxnet --yes
+    - git submodule update --recursive --init
+    - make clean
+    - make -j USE_MKLDNN=1 USE_BLAS=mkl USE_INTEL_PATH=/home/gitlab-runner/intel USE_OPENCV=1
+    - cd python
+    - python setup.py clean
+    - python setup.py install
+  artifacts:
+    paths:
+      - ./lib
+
+job mkldnn1.0_preci_test:
+  only:
+    refs:
+      - official
+      - merge_requests
+  except:
+    - schedules
+  tags: 
+    - mxnet-mkldnn1.0-preci
+  stage: test
+  script:
+    - echo mxnet-mkldnn1.0 preci test
+    - source ~/anaconda3/bin/activate
+    - conda activate py36-mxnet-mkldnn1.0    
+    - set -ex
+    - export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
+    - export SOURCE_PATH=$PWD
+    - echo $SOURCE_PATH
+    - bash ~/workspace/mxnet_test.sh
