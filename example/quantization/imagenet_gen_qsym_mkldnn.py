@@ -244,8 +244,8 @@ if __name__ == '__main__':
     else:
         logger.info('Please set proper RGB configs for model %s' % args.model)
         # add rgb mean/std of your model.
-        rgb_mean = '0,0,0'
-        rgb_std = '0,0,0'
+        rgb_mean = '123.68,116.779,103.939'
+        rgb_std = '58.393, 57.12, 57.375'
         # add layer names you donnot want to quantize.
         logger.info('Please set proper excluded_sym_names for model %s' % args.model)
         excluded_sym_names += ['layers']
